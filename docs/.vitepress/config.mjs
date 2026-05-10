@@ -6,7 +6,9 @@ export default defineConfig({
   base: "/codex-remote-control-lab/",
   cleanUrls: true,
   head: [
-    ["link", { rel: "icon", href: "/codex-remote-control-lab/logo.svg" }],
+    ["link", { rel: "icon", type: "image/svg+xml", href: "/codex-remote-control-lab/favicon.svg" }],
+    ["link", { rel: "manifest", href: "/codex-remote-control-lab/site.webmanifest" }],
+    ["meta", { name: "theme-color", content: "#15151a" }],
     ["meta", { property: "og:type", content: "website" }],
     ["meta", { property: "og:title", content: "Codex Remote Control Lab" }],
     ["meta", { property: "og:description", content: "Local-first Codex app-server and token-protected LAN phone bridge experiments." }],

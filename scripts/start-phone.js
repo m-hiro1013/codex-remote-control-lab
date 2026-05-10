@@ -24,6 +24,14 @@ const imageExtensions = new Map([
   [".webp", "image/webp"],
   [".svg", "image/svg+xml"],
 ]);
+const staticMimeTypes = new Map([
+  [".css", "text/css"],
+  [".html", "text/html"],
+  [".js", "application/javascript"],
+  [".json", "application/json"],
+  [".svg", "image/svg+xml"],
+  [".webmanifest", "application/manifest+json"],
+]);
 
 function getToken() {
   if (process.env.PHONE_TOKEN) return process.env.PHONE_TOKEN;
@@ -233,11 +241,7 @@ function serveStatic(req, res) {
     res.end("Not found");
     return;
   }
-  const type = target.endsWith(".js")
-    ? "application/javascript"
-    : target.endsWith(".css")
-      ? "text/css"
-      : "text/html";
+  const type = staticMimeTypes.get(path.extname(target).toLowerCase()) || "application/octet-stream";
   res.writeHead(200, { "content-type": `${type}; charset=utf-8`, "cache-control": "no-store" });
   fs.createReadStream(target).pipe(res);
 }
