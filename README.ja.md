@@ -123,6 +123,39 @@ Compact chat typography with image-link preview:
 
 ![Compact chat font with image preview screenshot](docs/assets/chat-font-image-preview.png)
 
+Theme comparison:
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-simple-desktop.png" alt="Simple theme desktop screenshot" width="280"><br>
+      <sub>シンプル desktop</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-cyberpunk-desktop.png" alt="Cyberpunk theme desktop screenshot" width="280"><br>
+      <sub>サイバーパンク desktop</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-botanical-desktop.png" alt="Botanical theme desktop screenshot" width="280"><br>
+      <sub>ボタニカル desktop</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-simple-mobile-settings.png" alt="Simple theme mobile settings screenshot" width="180"><br>
+      <sub>シンプル設定</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-cyberpunk-mobile-settings.png" alt="Cyberpunk theme mobile settings screenshot" width="180"><br>
+      <sub>サイバーパンク設定</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-botanical-mobile-settings.png" alt="Botanical theme mobile settings screenshot" width="180"><br>
+      <sub>ボタニカル設定</sub>
+    </td>
+  </tr>
+</table>
+
 Mobile flow:
 
 <table>
