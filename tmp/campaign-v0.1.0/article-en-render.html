@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>Codex Remote Control Lab v0.1.0: phone control for a localhost-first Codex app-server</title>
+<title>Codex Remote Control Lab v0.1.0: control desktop Codex from your phone, with sessions synced across PC and mobile</title>
 <style>
   body { margin: 40px; color: #111; background: #fff; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; line-height: 1.9; }
   article { max-width: 720px; }
@@ -17,15 +17,38 @@
 </head>
 <body>
 <article>
+<p>![Codex from phone, PC and mobile session sync.](assets/thumbnail-maki-codex-remote-en.png)</p>
 <p>Codex Remote Control Lab v0.1.0 is the first public release of a local-first experiment for OpenAI Codex CLI <code>remote-control</code> and <code>app-server</code> workflows.</p>
-<p>The idea is simple: keep the Codex app-server bound to <code>127.0.0.1</code>, then expose only a small token-protected browser bridge to devices on the same trusted LAN. That gives you a phone-friendly control surface without treating the Codex app-server itself as a LAN service.</p>
-<h2>What shipped</h2>
-<p>The release packages a working bridge, browser UI, public documentation, screenshot evidence, and release validation into one repository.</p>
+<p>The biggest idea is not just “a phone UI.” It is this:</p>
+<p><strong>You can operate the desktop-side Codex session from your phone.</strong></p>
+<p>And because the bridge can share one managed thread across browsers, your PC and phone can stay on the same Codex session. Start a task at your desk, check the artifact panel from your phone, send a follow-up instruction while away from the keyboard, then return to the PC and continue from the same session. That PC/mobile session sync is the point.</p>
+<p>![Desktop Codex-like UI with thread navigation, conversation, and artifact panel.](https://raw.githubusercontent.com/Sunwood-ai-labs/codex-remote-control-lab/main/docs/assets/desktop-like-ui-desktop.png)</p>
+<h2>One Codex session, two screens</h2>
+<p>Codex Remote Control Lab keeps the actual Codex app-server local, then exposes a token-protected browser bridge for trusted same-LAN devices.</p>
+<p>On mobile, the browser UI gives you access to the same working surfaces you expect on desktop: threads, conversation, artifacts, model selection, approval controls, sandbox mode controls, and image attachments.</p>
+<p>![Mobile Codex-like UI showing the same bridge-managed workspace from a phone.](https://raw.githubusercontent.com/Sunwood-ai-labs/codex-remote-control-lab/main/docs/assets/desktop-like-ui-mobile.png)</p>
+<p>The bridge-managed thread is the important part. A phone browser and a desktop browser can look at the same session instead of creating two disconnected conversations.</p>
+<p>That means you can:</p>
+<ul>
+<li>start a coding or documentation task on the PC</li>
+<li>monitor progress from your phone</li>
+<li>inspect artifacts without staying at the desk</li>
+<li>send the next instruction from mobile</li>
+<li>return to the PC and keep working from the same thread</li>
+</ul>
+<p>It feels less like a separate mobile app and more like a synchronized remote control for the desktop Codex workflow.</p>
+<h2>Localhost-first by design</h2>
+<p>The network boundary is intentional:</p>
+<pre><code>phone browser -&gt; http://Mac-LAN-IP:45214 -&gt; Node bridge -&gt; ws://127.0.0.1:45213 -&gt; Codex app-server</code></pre>
+<p>The Codex app-server remains bound to <code>127.0.0.1</code>. The LAN-facing surface is the Node bridge, and that bridge requires a token on page, API, upload, artifact, and WebSocket paths.</p>
+<p>So the app-server itself is not treated as a LAN service. Only the small browser bridge is exposed.</p>
+<h2>What shipped in v0.1.0</h2>
+<p>This initial release packages a working bridge, browser UI, public documentation, screenshot evidence, and validation workflow.</p>
 <p>Highlights:</p>
 <ul>
-<li>a repository-local Codex CLI <code>0.130.0</code> app-server launcher</li>
-<li>a token-protected phone bridge for same-LAN browser clients</li>
-<li>one shared bridge-managed thread across phone and desktop browsers</li>
+<li>repository-local Codex CLI <code>0.130.0</code> app-server launcher</li>
+<li>token-protected phone bridge for same-LAN browser clients</li>
+<li>one bridge-managed thread shared across phone and desktop browsers</li>
 <li>recent thread resume</li>
 <li>artifact preview</li>
 <li>approval and sandbox mode controls for the next turn</li>
@@ -37,22 +60,11 @@
 <li>simple, cyberpunk, and botanical color themes</li>
 <li>bilingual docs through VitePress and GitHub Pages</li>
 </ul>
-<h2>Localhost-first by design</h2>
-<p>The important boundary is intentional:</p>
-<pre><code>phone browser -&gt; http://Mac-LAN-IP:45214 -&gt; Node bridge -&gt; ws://127.0.0.1:45213 -&gt; Codex app-server</code></pre>
-<p>The Codex app-server remains on localhost. The LAN-facing surface is the Node bridge, and that bridge requires a token on page, API, upload, artifact, and WebSocket paths.</p>
-<p>The repository also keeps local-only state out of Git:</p>
-<ul>
-<li><code>.phone-token</code></li>
-<li><code>.uploads/</code></li>
-<li><code>.codex-home*/</code></li>
-<li>logs</li>
-<li>generated docs output</li>
-<li>session databases</li>
-</ul>
-<h2>Browser UI</h2>
-<p>The browser UI is modeled after a compact Codex Desktop-style workspace: thread navigation on the left, conversation in the center, artifacts on the right, and a bottom composer for the next turn.</p>
-<p>For v0.1.0, the UI includes screenshots for desktop, mobile, tablet, Markdown previews, image previews, grouped sidebars, status logs, and the new theme selector. The theme selector stores the selected theme in browser local storage, so the UI can stay readable for different environments.</p>
+<h2>A readable mobile workspace</h2>
+<p>v0.1.0 keeps the dense desktop-style layout while making the right panel, settings, and responsive states usable on phone-sized screens. The selected theme is saved in browser local storage, so you can switch between simple, cyberpunk, and botanical appearances.</p>
+<p>![Mobile settings panel with simple, cyberpunk, and botanical themes.](https://raw.githubusercontent.com/Sunwood-ai-labs/codex-remote-control-lab/main/docs/assets/theme-cyberpunk-mobile-settings.png)</p>
+<p>Markdown artifacts and image previews are also part of the workflow, so release notes, generated reports, screenshots, and local repository artifacts can be reviewed from either screen.</p>
+<p>![Markdown artifact preview showing the GitHub release body inside the bridge UI.](https://raw.githubusercontent.com/Sunwood-ai-labs/codex-remote-control-lab/main/docs/assets/artifact-markdown-github-preview-desktop.png)</p>
 <h2>Validation</h2>
 <p>The release was checked with:</p>
 <pre><code>npm run check

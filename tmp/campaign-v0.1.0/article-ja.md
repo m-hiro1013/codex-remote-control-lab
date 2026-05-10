@@ -1,8 +1,45 @@
-# Codex Remote Control Lab v0.1.0 を公開しました: Codex app-server を localhost に置いたままスマホから操作する実験場
+# Codex Remote Control Lab v0.1.0 を公開しました: スマホからデスクトップのCodexを操作して、PCとスマホでセッション同期できる実験場
+
+![スマホでCodex操作、PCとセッション同期。](assets/thumbnail-maki-codex-remote-ja.png)
 
 Codex Remote Control Lab v0.1.0 を公開しました。OpenAI Codex CLI の `remote-control` / `app-server` を、ローカル優先で安全に試すための実験リポジトリです。
 
-狙いはシンプルです。Codex app-server は `127.0.0.1` に閉じたままにして、同じ trusted LAN 上のスマホや別ブラウザには token 付きの小さな browser bridge だけを見せます。Codex app-server 自体を LAN サービスとして扱わず、操作面だけを橋渡しします。
+このリリースでいちばん大きいポイントは、**スマホからデスクトップ側のCodexを操作できること**です。
+
+しかも単なるリモコンではありません。PCブラウザとスマホブラウザで同じ bridge-managed thread を共有できるので、**PCとスマホでCodexセッションを同期できます**。デスクではPCで続きを見て、席を離れたらスマホで同じセッションを確認して、そのまま次の指示を出せます。ここがかなり大きいです。
+
+![PC側のCodex風UI。左にthread、中央にconversation、右にartifact panelが並ぶ。](https://raw.githubusercontent.com/Sunwood-ai-labs/codex-remote-control-lab/main/docs/assets/desktop-like-ui-desktop.png)
+
+## PCとスマホで同じCodexセッションを扱う
+
+Codex Remote Control Lab は、Mac上の Codex app-server を直接LANへ出すのではなく、token-protected bridge を通してブラウザUIを提供します。
+
+スマホから開くと、PCと同じように thread、conversation、artifact、model、approval/sandbox control を扱えます。
+
+![スマホ側のCodex風UI。同じthreadをスマホ画面から操作できる。](https://raw.githubusercontent.com/Sunwood-ai-labs/codex-remote-control-lab/main/docs/assets/desktop-like-ui-mobile.png)
+
+共有できるのは画面だけではありません。bridge-managed thread を使うことで、PCブラウザとスマホブラウザが同じセッションの続きを見られます。
+
+たとえば:
+
+- PCで長めの実装作業を始める
+- スマホで進捗やartifactを確認する
+- スマホから追加指示を送る
+- 戻ってきたらPC側で同じセッションの続きを見る
+
+この流れを、追加のクラウドサービスを挟まずローカル優先で試せるようにしたのが v0.1.0 です。
+
+## localhost-first の安全境界
+
+構成は次のようにしています。
+
+```text
+phone browser -> http://Mac-LAN-IP:45214 -> Node bridge -> ws://127.0.0.1:45213 -> Codex app-server
+```
+
+Codex app-server は `127.0.0.1` に残します。LAN に出るのは Node bridge だけで、page / API / upload / artifact / WebSocket path には token を要求します。
+
+つまり、Codex app-server 自体をLANサービスとして公開するのではなく、操作面だけを小さなbridgeで橋渡しします。
 
 ## v0.1.0 で入っているもの
 
@@ -24,30 +61,15 @@ Codex Remote Control Lab v0.1.0 を公開しました。OpenAI Codex CLI の `re
 - simple / cyberpunk / botanical のカラーテーマ
 - VitePress と GitHub Pages による日英 docs
 
-## localhost-first の安全境界
+## スマホでも読みやすい操作画面
 
-構成は次のようにしています。
+v0.1.0 では、デスクトップ風の情報密度を保ちながら、スマホでも操作しやすいように右パネルや設定画面を調整しています。テーマは browser local storage に保存されるので、simple / cyberpunk / botanical を環境に合わせて切り替えられます。
 
-```text
-phone browser -> http://Mac-LAN-IP:45214 -> Node bridge -> ws://127.0.0.1:45213 -> Codex app-server
-```
+![スマホの設定panel。simple、cyberpunk、botanical のテーマを切り替えられる。](https://raw.githubusercontent.com/Sunwood-ai-labs/codex-remote-control-lab/main/docs/assets/theme-cyberpunk-mobile-settings.png)
 
-Codex app-server は localhost に残します。LAN に出るのは Node bridge だけで、page / API / upload / artifact / WebSocket path には token を要求します。
+また、Markdown artifact や画像previewも、PC/スマホ両方から確認できるようにしています。
 
-また、公開リポジトリに入れてはいけないローカル状態は Git から除外しています。
-
-- `.phone-token`
-- `.uploads/`
-- `.codex-home*/`
-- log
-- generated docs output
-- session database
-
-## ブラウザ UI
-
-UI は Codex Desktop 風のコンパクトな作業画面に寄せています。左に thread navigation、中央に conversation、右に artifact panel、下に composer という構成です。
-
-v0.1.0 では、desktop / mobile / tablet、Markdown preview、image preview、grouped sidebar、status log、theme selector のスクリーンショットも docs に入れています。テーマは browser local storage に保存されるので、simple / cyberpunk / botanical を環境に合わせて切り替えられます。
+![GitHub release本文のMarkdown artifact preview。記事やrelease noteを画面内で確認できる。](https://raw.githubusercontent.com/Sunwood-ai-labs/codex-remote-control-lab/main/docs/assets/artifact-markdown-github-preview-desktop.png)
 
 ## 検証
 
@@ -60,7 +82,7 @@ npm run docs:build
 xmllint --noout docs/public/logo.svg docs/public/social-card.svg
 ```
 
-さらに test token で bridge を起動し、設定 panel に 3 つのテーマが表示されること、Cyberpunk に切り替えると `html[data-theme="cyberpunk"]` になることを確認しています。
+さらに test token で bridge を起動し、設定panelに3つのテーマが表示されること、Cyberpunkに切り替えると `html[data-theme="cyberpunk"]` になることを確認しています。
 
 GitHub Actions の CI と docs deploy も release commit で成功し、公開 docs も HTTP 200 を返すことを確認しました。
 
@@ -71,4 +93,3 @@ GitHub Actions の CI と docs deploy も release commit で成功し、公開 d
 - Documentation: https://sunwood-ai-labs.github.io/codex-remote-control-lab/
 - Phone bridge guide: https://sunwood-ai-labs.github.io/codex-remote-control-lab/guide/phone-bridge
 - 日本語ドキュメント: https://sunwood-ai-labs.github.io/codex-remote-control-lab/ja/
-

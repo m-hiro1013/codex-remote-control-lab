@@ -11,9 +11,9 @@
 
 | Platform | Language | Intended action | Title | Status |
 | --- | --- | --- | --- | --- |
-| note.com | Japanese | Public publish after confirmation | Codex Remote Control Lab v0.1.0 を公開しました: Codex app-server を localhost に置いたままスマホから操作する実験場 | ready |
-| Medium | English | Draft save only by default | Codex Remote Control Lab v0.1.0: phone control for a localhost-first Codex app-server | ready |
-| Substack | English | Web-only public publish after confirmation; no email/app delivery | Codex Remote Control Lab v0.1.0: phone control for a localhost-first Codex app-server | ready |
+| note.com | Japanese | Public publish after confirmation | Codex Remote Control Lab v0.1.0 を公開しました: スマホからデスクトップのCodexを操作して、PCとスマホでセッション同期できる実験場 | ready |
+| Medium | English | Draft save only by default | Codex Remote Control Lab v0.1.0: control desktop Codex from your phone, with sessions synced across PC and mobile | ready |
+| Substack | English | Web-only public publish after confirmation; no email/app delivery | Codex Remote Control Lab v0.1.0: control desktop Codex from your phone, with sessions synced across PC and mobile | ready |
 
 ## Sensitive Detail Check
 
@@ -23,6 +23,15 @@
 
 ## Media
 
-- Existing repository social card: `docs/public/social-card.svg`.
-- No new generated thumbnail selected yet.
-- If platform cover upload is reachable, use the social card or generate language-matched raster cover before final publication.
+- Japanese generated thumbnail: `tmp/campaign-v0.1.0/assets/thumbnail-maki-codex-remote-ja.png`.
+- English generated thumbnail: `tmp/campaign-v0.1.0/assets/thumbnail-maki-codex-remote-en.png`.
+- Original generated images are preserved in the local Codex generated-images folder; copied campaign assets are stored under `tmp/campaign-v0.1.0/assets/`.
+- Body screenshots use public GitHub raw URLs so they remain visible after cross-platform posting.
+- note.com should use the Japanese thumbnail as cover/eyecatch if the cover control is reachable.
+- Medium/Substack should use the English thumbnail as the first image or platform cover.
+
+## Core Message Check
+
+- The lead now explicitly says the main value is operating desktop-side Codex from a phone.
+- The lead and first section explicitly explain PC/mobile session sync through one bridge-managed thread.
+- Screenshots are embedded in the body for desktop UI, mobile UI, theme settings, and Markdown artifact preview.
