@@ -576,8 +576,14 @@ class SharedBridge {
       this.emit("event", { event: msg });
     });
 
-    this.upstream.on("error", (error) => this.emit("error", { text: error.message }));
-    this.upstream.on("close", () => this.emit("status", { text: "Codex接続が閉じました" }));
+    this.upstream.on("error", (error) => {
+      if (!this.ready) this.startupFailed = true;
+      this.emit("error", { text: error.message });
+    });
+    this.upstream.on("close", () => {
+      if (!this.ready) this.startupFailed = true;
+      this.emit("status", { text: "Codex接続が閉じました" });
+    });
   }
 
   prompt(text, attachments = [], options = {}) {
