@@ -26,6 +26,8 @@ const artifactPreview = document.querySelector("#artifactPreview");
 const terminalList = document.querySelector("#terminalList");
 const statusButton = document.querySelector("#statusButton");
 const webSearchButton = document.querySelector("#webSearchButton");
+const runState = document.querySelector("#runState");
+const runStateLabel = document.querySelector("#runStateLabel");
 const threadList = document.querySelector("#threadList");
 const threadSearch = document.querySelector("#threadSearch");
 const threadTitle = document.querySelector("#threadTitle");
@@ -54,16 +56,43 @@ let pendingApproval = null;
 let assistantEntry = null;
 let statusGroup = null;
 let threadCache = [];
+let liveTurnActive = false;
+let lastHistorySignature = "";
+let lastThreadListError = "";
+let lastThreadRefreshError = "";
+let selectedThreadRefreshActive = false;
 let selectedModel = localStorage.getItem("codexPhoneModel") || "";
 let selectedModelLabel = localStorage.getItem("codexPhoneModelLabel") || "5.5";
 let selectedReasoning = localStorage.getItem("codexPhoneReasoning") || "中";
 let settingsRenderSeq = 0;
+let artifactItems = [];
+let activeArtifactPath = "";
 let accessMode = {
   label: "フルアクセス",
   approvalPolicy: "never",
   sandboxMode: "danger-full-access",
 };
 let pendingFiles = [];
+
+const runStateText = {
+  connecting: "接続中",
+  ready: "待機中",
+  running: "Codex 処理中",
+  streaming: "回答生成中",
+  approval: "承認待ち",
+  syncing: "履歴同期中",
+  done: "完了",
+  disconnected: "切断",
+  error: "エラー",
+};
+
+function setRunState(state, label) {
+  if (!runState || !runStateLabel) return;
+  const nextLabel = label || runStateText[state] || state;
+  if (runState.dataset.state === state && runStateLabel.textContent === nextLabel) return;
+  runState.dataset.state = state;
+  runStateLabel.textContent = nextLabel;
+}
 
 function applyTheme(themeId) {
   const nextTheme = themeOptions.some((theme) => theme.id === themeId) ? themeId : "simple";
@@ -81,7 +110,7 @@ const accessModes = [
 ];
 
 function updateModelButton() {
-  modelButton.textContent = `${selectedModelLabel} ${selectedReasoning}⌄`;
+  modelButton.textContent = `${selectedModelLabel} ${selectedReasoning}`;
   for (const row of modelMenu.querySelectorAll("[data-reasoning]")) {
     const active = row.dataset.reasoning === selectedReasoning;
     row.classList.toggle("active", active);
@@ -418,8 +447,15 @@ function renderMarkdown(text, options = {}) {
   return blocks.join("");
 }
 
+function stripUiDirectives(text) {
+  return String(text || "")
+    .replace(/(?:^|\n)::[a-z0-9-]+\{[^\n]*\}(?=\n|$)/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function setEntryText(body, kind, text) {
-  body.markdownSource = text || "";
+  body.markdownSource = kind === "assistant" ? stripUiDirectives(text) : text || "";
   if (kind === "assistant" || kind === "user") body.innerHTML = renderMarkdown(body.markdownSource);
   else body.textContent = body.markdownSource;
 }
@@ -514,6 +550,7 @@ function addEntry(kind, text, images = []) {
     addStatusGroupItem(text);
     return null;
   }
+  if (kind === "user" && !String(text || "").trim() && !images.length) return null;
   statusGroup = null;
   const el = document.createElement("article");
   el.className = `entry ${kind}`;
@@ -551,6 +588,24 @@ function renderHistory(history) {
   log.replaceChildren();
   statusGroup = null;
   for (const entry of history || []) addEntry(entry.type, entry.text, entry.attachments || []);
+}
+
+function historySignature(history = []) {
+  return JSON.stringify(
+    history.map((entry) => ({
+      type: entry.type,
+      text: entry.text || "",
+      attachments: (entry.attachments || []).map((attachment) => attachment.name || attachment.url || ""),
+    })),
+  );
+}
+
+function renderHistoryIfChanged(history = []) {
+  const signature = historySignature(history);
+  if (signature === lastHistorySignature) return false;
+  lastHistorySignature = signature;
+  renderHistory(history);
+  return true;
 }
 
 function renderThreadList() {
@@ -630,14 +685,39 @@ async function apiGet(path) {
   return result;
 }
 
-async function loadThreads() {
+async function loadThreads({ background = false } = {}) {
   if (!token) return;
   try {
     const result = await apiGet("/api/threads");
     threadCache = result.data || [];
     renderThreadList();
+    lastThreadListError = "";
   } catch (error) {
-    addEntry("error", `thread一覧を読めませんでした: ${error.message}`);
+    const message = error.message || String(error);
+    if (message !== lastThreadListError) {
+      lastThreadListError = message;
+      addEntry("error", `thread一覧を読めませんでした: ${message}`);
+    }
+    if (!background) throw error;
+  }
+}
+
+async function refreshSelectedThread() {
+  if (!selectedThread || liveTurnActive || selectedThreadRefreshActive) return;
+  selectedThreadRefreshActive = true;
+  try {
+    const result = await apiGet(`/api/thread?thread=${encodeURIComponent(selectedThread)}`);
+    if (result.threadId !== selectedThread) return;
+    renderHistoryIfChanged(result.history || []);
+    lastThreadRefreshError = "";
+  } catch (error) {
+    const message = error.message || String(error);
+    if (message !== lastThreadRefreshError) {
+      lastThreadRefreshError = message;
+      addEntry("error", `thread更新を読めませんでした: ${message}`);
+    }
+  } finally {
+    selectedThreadRefreshActive = false;
   }
 }
 
@@ -656,6 +736,15 @@ function updateUrlThread() {
   if (selectedThread) next.searchParams.set("thread", selectedThread);
   else next.searchParams.delete("thread");
   history.replaceState(null, "", next);
+}
+
+function syncReadyThread(threadId) {
+  if (!threadId || selectedThread === threadId) return;
+  selectedThread = threadId;
+  updateUrlThread();
+  const selected = threadCache.find((thread) => thread.id === selectedThread);
+  threadTitle.textContent = selected ? titleForThread(selected) : selectedThread;
+  renderThreadList();
 }
 
 function selectThread(threadId) {
@@ -680,7 +769,9 @@ function closeRightPanel() {
 function clearPanel(title) {
   showRightPanel();
   artifactTitle.textContent = title;
+  artifactList.classList.remove("artifact-browser-list");
   artifactList.replaceChildren();
+  activeArtifactPath = "";
   artifactPreview.classList.add("hidden");
   artifactPreview.textContent = "";
 }
@@ -696,14 +787,29 @@ function addPanelRow(text, detail, onClick) {
 }
 
 function renderArtifactIndex(items) {
+  artifactItems = items;
+  activeArtifactPath = "";
   artifactTitle.textContent = "アーティファクト";
+  artifactList.classList.add("artifact-browser-list");
+  renderArtifactRows();
+  hideArtifactPreview();
+}
+
+function renderArtifactRows() {
   artifactList.replaceChildren();
-  artifactPreview.classList.add("hidden");
-  artifactPreview.textContent = "";
-  for (const item of items) {
+  for (const item of artifactItems) {
     const icon = item.kind === "image" ? "画像" : item.kind === "markdown" ? "MD" : "FILE";
-    addPanelRow(item.name, `${icon} · ${item.path}`, () => showArtifact(item.path));
+    const row = addPanelRow(item.name, `${icon} · ${item.path}`, () => showArtifact(item.path));
+    row.classList.toggle("active", item.path === activeArtifactPath);
   }
+  if (!artifactItems.length) addPanelRow("アーティファクトは見つかりませんでした");
+}
+
+function hideArtifactPreview() {
+  activeArtifactPath = "";
+  renderArtifactRows();
+  artifactPreview.className = "artifact-preview hidden";
+  artifactPreview.textContent = "";
 }
 
 function escapeHtml(value) {
@@ -867,6 +973,7 @@ async function showStatus() {
     const result = await apiGet("/api/status");
     addPanelRow("UI port", String(result.uiPort));
     addPanelRow("Codex app-server", result.codexUrl);
+    addPanelRow("履歴同期", result.historySyncEnabled ? "有効" : "無効");
     addPanelRow("作業ディレクトリ", result.workdir);
     for (const bridge of result.bridges || []) {
       addPanelRow(bridge.threadId || "thread準備中", `${bridge.clients}端末 / ${bridge.ready ? "ready" : "starting"}`);
@@ -877,16 +984,32 @@ async function showStatus() {
 }
 
 async function showArtifact(path) {
-  clearPanel("アーティファクト");
-  addPanelRow(path, "読み込み中");
+  showRightPanel();
+  artifactTitle.textContent = "アーティファクト";
+  artifactList.classList.add("artifact-browser-list");
+  activeArtifactPath = path;
+  renderArtifactRows();
+  artifactPreview.className = "artifact-preview";
+  artifactPreview.innerHTML = `
+    <div class="artifact-preview-header">
+      <div class="artifact-preview-title">${escapeHtml(path)}</div>
+      <button type="button" class="artifact-preview-close" data-preview-close>閉じる</button>
+    </div>
+    <p>読み込み中...</p>
+  `;
   try {
     const result = await apiGet(`/api/file?path=${encodeURIComponent(path)}`);
-    artifactList.replaceChildren();
-    addPanelRow(result.path, "ローカルファイル");
     setArtifactPreview(result);
     artifactPreview.classList.remove("hidden");
   } catch (error) {
-    showToolError("アーティファクト", error);
+    artifactPreview.innerHTML = `
+      <div class="artifact-preview-header">
+        <div class="artifact-preview-title">${escapeHtml(path)}</div>
+        <button type="button" class="artifact-preview-close" data-preview-close>閉じる</button>
+      </div>
+      <p>読み込みに失敗しました: ${escapeHtml(error.message)}</p>
+    `;
+    addEntry("error", `アーティファクト: ${error.message}`);
   }
 }
 
@@ -896,15 +1019,21 @@ function setArtifactPreview(result) {
   artifactPreview.classList.toggle("image-artifact-preview", isImage);
   artifactPreview.classList.toggle("markdown-preview", isMarkdown);
   artifactPreview.classList.toggle("plain-preview", !isMarkdown && !isImage);
+  const header = `
+    <div class="artifact-preview-header">
+      <div class="artifact-preview-title">${escapeHtml(result.path)}</div>
+      <button type="button" class="artifact-preview-close" data-preview-close>閉じる</button>
+    </div>
+  `;
   if (isImage) {
-    artifactPreview.innerHTML = "";
+    artifactPreview.innerHTML = header;
     const gallery = renderImageGallery([{ name: result.path, url: result.imageUrl }]);
     artifactPreview.appendChild(gallery);
     return;
   }
-  artifactPreview.innerHTML = isMarkdown
-    ? renderMarkdown(result.text, { allowHtml: true, headingOffset: 0 })
-    : `<pre><code>${escapeHtml(result.text)}</code></pre>`;
+  artifactPreview.innerHTML = `${header}${
+    isMarkdown ? renderMarkdown(result.text, { allowHtml: true, headingOffset: 0 }) : `<pre><code>${escapeHtml(result.text)}</code></pre>`
+  }`;
 }
 
 function renderAttachments() {
@@ -945,6 +1074,9 @@ function connect() {
     return;
   }
   if (ws) ws.close();
+  liveTurnActive = false;
+  setRunState("connecting");
+  lastHistorySignature = "";
   renderHistory([]);
   const selected = threadCache.find((thread) => thread.id === selectedThread);
   threadTitle.textContent = selected ? titleForThread(selected) : "新しい共有thread";
@@ -956,6 +1088,7 @@ function connect() {
   meta.textContent = "接続中";
 
   ws.addEventListener("open", () => {
+    setRunState("connecting", "Codex に接続中");
     addEntry("status", "Macの共有ブリッジへ接続しました。");
   });
 
@@ -963,17 +1096,22 @@ function connect() {
     const msg = JSON.parse(event.data);
     if (msg.type === "ready") {
       setReady(true);
-      renderHistory(msg.history || []);
+      syncReadyThread(msg.threadId);
+      renderHistoryIfChanged(msg.history || []);
       meta.textContent = `${msg.model}  •  ${msg.clients}端末  •  ${msg.workdir}`;
+      setRunState("ready");
       addEntry("status", `共有Codex thread ready: ${msg.threadId}`);
       return;
     }
     if (msg.type === "user") {
+      liveTurnActive = true;
       assistantEntry = null;
+      setRunState("running");
       addEntry("user", msg.text, msg.attachments || []);
       return;
     }
     if (msg.type === "assistantDelta") {
+      setRunState("streaming");
       if (!assistantEntry) assistantEntry = addEntry("assistant", "");
       setEntryText(assistantEntry, "assistant", `${assistantEntry.markdownSource || ""}${msg.text}`);
       log.scrollTop = log.scrollHeight;
@@ -981,20 +1119,29 @@ function connect() {
     }
     if (msg.type === "approval") {
       pendingApproval = msg.request;
+      setRunState("approval");
       approvalText.textContent = JSON.stringify(msg.request.params, null, 2);
       approval.classList.remove("hidden");
       return;
     }
     if (msg.type === "turn" && msg.status === "completed") {
+      liveTurnActive = false;
+      lastHistorySignature = "";
       assistantEntry = null;
+      setRunState("done", "完了しました");
       loadThreads();
+      refreshSelectedThread();
       return;
     }
     if (msg.type === "error") {
+      setRunState("error", msg.text || "エラー");
       addEntry("error", msg.text);
       return;
     }
     if (msg.type === "status") {
+      if (/履歴同期を更新しました/.test(msg.text || "")) setRunState("done", "完了・履歴同期済み");
+      else if (/履歴同期に失敗/.test(msg.text || "")) setRunState("error", "履歴同期に失敗");
+      else if (/履歴同期/.test(msg.text || "")) setRunState("syncing", msg.text);
       addEntry("status", msg.text);
     }
   });
@@ -1003,6 +1150,7 @@ function connect() {
     setReady(false);
     connectButton.disabled = false;
     meta.textContent = "切断";
+    setRunState("disconnected");
   });
 }
 
@@ -1033,6 +1181,7 @@ approveButton.addEventListener("click", () => {
   ws.send(JSON.stringify({ type: "approval", token, decision: "accept", request: pendingApproval }));
   approval.classList.add("hidden");
   pendingApproval = null;
+  setRunState("running", "承認済み・処理中");
 });
 
 declineButton.addEventListener("click", () => {
@@ -1040,6 +1189,7 @@ declineButton.addEventListener("click", () => {
   ws.send(JSON.stringify({ type: "approval", token, decision: "decline", request: pendingApproval }));
   approval.classList.add("hidden");
   pendingApproval = null;
+  setRunState("running", "拒否済み・処理中");
 });
 
 newThreadButton.addEventListener("click", () => selectThread(""));
@@ -1069,6 +1219,9 @@ menuButton.addEventListener("click", () => {
   }
 });
 closePanelButton.addEventListener("click", closeRightPanel);
+artifactPreview.addEventListener("click", (event) => {
+  if (event.target.closest("[data-preview-close]")) hideArtifactPreview();
+});
 addButton.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", async () => {
   const files = Array.from(fileInput.files || []).filter((file) => file.type.startsWith("image/"));
@@ -1127,4 +1280,6 @@ for (const button of artifactButtons) {
 setReady(false);
 updateModelButton();
 loadArtifacts();
-loadThreads().finally(connect);
+loadThreads().catch(() => {}).finally(connect);
+setInterval(() => loadThreads({ background: true }), 10_000);
+setInterval(refreshSelectedThread, 3_000);
