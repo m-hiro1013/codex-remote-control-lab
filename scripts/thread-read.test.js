@@ -85,6 +85,32 @@ test("readThreadSnapshot does not call app-server while an existing bridge is st
   assert.deepEqual(snapshot.history, []);
 });
 
+test("readThreadSnapshot falls back when a matching bridge failed to resume", async () => {
+  const calls = [];
+  const snapshot = await readThreadSnapshot({
+    threadId: "thread-123",
+    liveBridge: {
+      ready: false,
+      startupFailed: true,
+      requestedThreadId: "thread-123",
+      threadId: null,
+      history: [],
+    },
+    request: async (method, params) => {
+      calls.push({ method, params });
+      if (method === "thread/read") throw new Error("stale cache");
+      return { thread: { id: "thread-123", turns: [] } };
+    },
+    model: "gpt-5.4",
+    workdir: "/tmp/user-project",
+    historyFromThread: () => [{ type: "status", text: "resumed" }],
+  });
+
+  assert.deepEqual(calls.map((call) => call.method), ["thread/read", "thread/resume"]);
+  assert.equal(snapshot.source, "app-server");
+  assert.deepEqual(snapshot.history, [{ type: "status", text: "resumed" }]);
+});
+
 test("readThreadSnapshot falls back from thread/read to thread/resume for non-live threads", async () => {
   const calls = [];
   const snapshot = await readThreadSnapshot({

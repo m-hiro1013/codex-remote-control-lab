@@ -412,6 +412,7 @@ class SharedBridge {
     this.threadId = null;
     this.activeTurnId = null;
     this.ready = false;
+    this.startupFailed = false;
     this.history = [];
     this.turnQueue = [];
     this.upstream = createUpstreamWebSocket();
@@ -508,10 +509,12 @@ class SharedBridge {
       if (pendingMethod === "thread/start" || pendingMethod === "thread/resume") {
         this.pending.delete(msg.id);
         if (msg.error) {
+          this.startupFailed = true;
           this.emit("error", { text: msg.error.message || JSON.stringify(msg.error) });
           return;
         }
         this.threadId = msg.result.thread.id;
+        this.startupFailed = false;
         this.promoteBridgeKey();
         this.ready = true;
         this.history = historyFromThread(msg.result.thread);

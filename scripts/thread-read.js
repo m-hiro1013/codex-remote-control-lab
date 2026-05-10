@@ -2,6 +2,7 @@ function liveBridgeSnapshot(bridge, threadId) {
   if (!bridge) return null;
   const matchesThread = bridge.threadId === threadId || bridge.requestedThreadId === threadId;
   if (!matchesThread) return null;
+  if (!bridge.ready && bridge.startupFailed) return null;
   return {
     threadId,
     ready: !!bridge.ready,
