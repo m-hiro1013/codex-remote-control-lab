@@ -114,6 +114,20 @@ Mobile layout:
 
 ![Desktop-like UI mobile screenshot](docs/assets/desktop-like-ui-mobile.png)
 
+Responsive checkpoints:
+
+![Responsive desktop screenshot](docs/assets/responsive-desktop.png)
+
+![Responsive tablet landscape screenshot](docs/assets/responsive-tablet-landscape.png)
+
+![Responsive tablet portrait screenshot](docs/assets/responsive-tablet-portrait.png)
+
+![Responsive mobile screenshot](docs/assets/responsive-mobile.png)
+
+![Responsive narrow mobile screenshot](docs/assets/responsive-narrow-mobile.png)
+
+![Responsive mobile drawer screenshot](docs/assets/responsive-mobile-drawer.png)
+
 ## Observed WebSocket Behavior
 
 The health probes returned:

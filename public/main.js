@@ -3,6 +3,7 @@ const meta = document.querySelector("#meta");
 const connectButton = document.querySelector("#connect");
 const newThreadButton = document.querySelector("#newThread");
 const mobileThreadsButton = document.querySelector("#mobileThreads");
+const sidebarScrim = document.querySelector("#sidebarScrim");
 const threadList = document.querySelector("#threadList");
 const threadTitle = document.querySelector("#threadTitle");
 const composer = document.querySelector("#composer");
@@ -104,6 +105,7 @@ function selectThread(threadId) {
   selectedThread = threadId;
   updateUrlThread();
   renderThreadList();
+  document.body.classList.remove("show-sidebar");
   connect();
 }
 
@@ -198,6 +200,7 @@ declineButton.addEventListener("click", () => {
 
 newThreadButton.addEventListener("click", () => selectThread(""));
 mobileThreadsButton.addEventListener("click", () => document.body.classList.toggle("show-sidebar"));
+sidebarScrim.addEventListener("click", () => document.body.classList.remove("show-sidebar"));
 connectButton.addEventListener("click", connect);
 
 setReady(false);
