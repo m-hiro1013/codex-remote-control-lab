@@ -103,6 +103,16 @@ This is not a pixel-for-pixel mirror of the Codex Desktop app. It is a browser c
 
 The bridge was smoke-tested locally by sending `Reply exactly: PHONE_BRIDGE_OK` through the phone WebSocket path and receiving `PHONE_BRIDGE_OK`.
 
+## UI Verification Screenshots
+
+Desktop-like layout:
+
+![Desktop-like UI desktop screenshot](docs/assets/desktop-like-ui-desktop.png)
+
+Mobile layout:
+
+![Desktop-like UI mobile screenshot](docs/assets/desktop-like-ui-mobile.png)
+
 ## Observed WebSocket Behavior
 
 The health probes returned:
