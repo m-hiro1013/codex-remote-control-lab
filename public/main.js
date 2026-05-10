@@ -129,7 +129,9 @@ function normalizeImageHref(value) {
   if (/^https?:\/\//i.test(value)) return value;
   const clean = String(value || "").replace(/^\.\//, "");
   if (clean.startsWith("/api/file/raw") || clean.startsWith("/api/uploaded")) return urlWithToken(clean);
-  if (clean.startsWith("docs/assets/")) return urlWithToken(`/api/file/raw?path=${encodeURIComponent(clean)}`);
+  if (/^[^?#]+\/[^?#]+\.(png|jpe?g|gif|webp|svg)(?:[?#].*)?$/i.test(clean)) {
+    return urlWithToken(`/api/file/raw?path=${encodeURIComponent(clean.replace(/[?#].*$/, ""))}`);
+  }
   const assetsIndex = clean.indexOf("/docs/assets/");
   if (assetsIndex >= 0) {
     const relativeAsset = clean.slice(assetsIndex + 1);
@@ -139,6 +141,93 @@ function normalizeImageHref(value) {
     return urlWithToken(`/api/file/raw?path=${encodeURIComponent(`docs/assets/${clean}`)}`);
   }
   return value;
+}
+
+function sanitizeMarkdownHtml(html) {
+  const allowedTags = new Set([
+    "A",
+    "B",
+    "BR",
+    "CODE",
+    "DEL",
+    "DETAILS",
+    "DIV",
+    "EM",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "IMG",
+    "KBD",
+    "P",
+    "PRE",
+    "S",
+    "SPAN",
+    "STRONG",
+    "SUB",
+    "SUMMARY",
+    "SUP",
+    "TABLE",
+    "TBODY",
+    "TD",
+    "TH",
+    "THEAD",
+    "TR",
+    "UL",
+    "OL",
+    "LI",
+  ]);
+  const template = document.createElement("template");
+  template.innerHTML = html;
+
+  const sanitizeNode = (node) => {
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === Node.TEXT_NODE) continue;
+      if (child.nodeType !== Node.ELEMENT_NODE || !allowedTags.has(child.tagName)) {
+        child.replaceWith(document.createTextNode(child.textContent || ""));
+        continue;
+      }
+
+      for (const attribute of [...child.attributes]) {
+        const name = attribute.name.toLowerCase();
+        const value = attribute.value;
+        if (name.startsWith("on") || name === "style" || name === "class" || name === "id") {
+          child.removeAttribute(attribute.name);
+          continue;
+        }
+        if (child.tagName === "A" && name === "href") {
+          const safeHref = sanitizeHref(value);
+          if (safeHref) {
+            child.setAttribute("href", safeHref);
+            child.setAttribute("target", "_blank");
+            child.setAttribute("rel", "noreferrer");
+          } else {
+            child.removeAttribute(attribute.name);
+          }
+          continue;
+        }
+        if (child.tagName === "IMG" && name === "src") {
+          child.setAttribute("src", normalizeImageHref(value));
+          child.setAttribute("loading", "lazy");
+          continue;
+        }
+        if (child.tagName === "IMG" && ["alt", "width", "height"].includes(name)) continue;
+        if (["align", "colspan", "rowspan"].includes(name)) continue;
+        child.removeAttribute(attribute.name);
+      }
+
+      sanitizeNode(child);
+    }
+  };
+
+  sanitizeNode(template.content);
+  return template.innerHTML;
+}
+
+function isHtmlBlockStart(line) {
+  return /^<\/?(p|div|table|thead|tbody|tr|td|th|a|img|br|h[1-6]|details|summary)\b/i.test(line.trim());
 }
 
 function renderInlineMarkdown(text) {
@@ -182,7 +271,8 @@ function renderInlineMarkdown(text) {
     });
 }
 
-function renderMarkdown(text) {
+function renderMarkdown(text, options = {}) {
+  const headingOffset = options.headingOffset ?? 1;
   const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
   const blocks = [];
   let index = 0;
@@ -191,6 +281,23 @@ function renderMarkdown(text) {
     const line = lines[index];
     if (!line.trim()) {
       index += 1;
+      continue;
+    }
+
+    if (options.allowHtml && isHtmlBlockStart(line)) {
+      const html = [line];
+      const open = line.trim().match(/^<([a-z0-9]+)\b/i)?.[1]?.toLowerCase();
+      index += 1;
+      while (
+        index < lines.length &&
+        lines[index].trim() &&
+        open &&
+        !new RegExp(`</${open}>`, "i").test(html.join("\n"))
+      ) {
+        html.push(lines[index]);
+        index += 1;
+      }
+      blocks.push(sanitizeMarkdownHtml(html.join("\n")));
       continue;
     }
 
@@ -210,7 +317,7 @@ function renderMarkdown(text) {
 
     const heading = line.match(/^(#{1,4})\s+(.+)$/);
     if (heading) {
-      const level = Math.min(heading[1].length + 1, 5);
+      const level = Math.min(heading[1].length + headingOffset, 6);
       blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
       index += 1;
       continue;
@@ -711,7 +818,9 @@ function setArtifactPreview(result) {
     artifactPreview.appendChild(gallery);
     return;
   }
-  artifactPreview.innerHTML = isMarkdown ? renderMarkdown(result.text) : `<pre><code>${escapeHtml(result.text)}</code></pre>`;
+  artifactPreview.innerHTML = isMarkdown
+    ? renderMarkdown(result.text, { allowHtml: true, headingOffset: 0 })
+    : `<pre><code>${escapeHtml(result.text)}</code></pre>`;
 }
 
 function renderAttachments() {

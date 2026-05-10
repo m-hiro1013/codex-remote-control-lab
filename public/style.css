@@ -954,6 +954,56 @@ textarea::placeholder {
   line-height: 1.35;
 }
 
+.artifact-preview.markdown-preview h1 {
+  margin: 0 0 16px;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 1.55em;
+  line-height: 1.25;
+}
+
+.artifact-preview.markdown-preview h2 {
+  margin-top: 22px;
+  padding-bottom: 0.28em;
+  border-bottom: 1px solid var(--line);
+  font-size: 1.25em;
+}
+
+.artifact-preview.markdown-preview h3 {
+  margin-top: 18px;
+  font-size: 1.08em;
+}
+
+.artifact-preview.markdown-preview img {
+  max-width: 100%;
+  height: auto;
+  border-style: none;
+  vertical-align: middle;
+}
+
+.artifact-preview.markdown-preview p[align="center"] {
+  text-align: center;
+}
+
+.artifact-preview.markdown-preview table {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+.artifact-preview.markdown-preview th,
+.artifact-preview.markdown-preview td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+}
+
+.artifact-preview.markdown-preview tr:nth-child(2n) {
+  background: var(--soft);
+}
+
 .artifact-preview ul,
 .artifact-preview ol {
   padding-left: 1.35em;
