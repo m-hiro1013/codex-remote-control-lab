@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/public/social-card.svg" alt="Codex Remote Control Lab" width="860">
+  <img src="docs/assets/codex-remote-control-lab-header.png" alt="Codex Remote Control Lab" width="860">
 </p>
 
 <p align="center">
