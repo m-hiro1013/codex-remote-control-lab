@@ -7,6 +7,7 @@ const pluginsButton = document.querySelector("#pluginsButton");
 const automationsButton = document.querySelector("#automationsButton");
 const settingsButton = document.querySelector("#settingsButton");
 const menuButton = document.querySelector("#menuButton");
+const closePanelButton = document.querySelector("#closePanelButton");
 const addButton = document.querySelector("#addButton");
 const accessButton = document.querySelector("#accessButton");
 const thinkingButton = document.querySelector("#thinkingButton");
@@ -874,6 +875,7 @@ menuButton.addEventListener("click", () => {
     addStatus("右パネルを開きました。");
   }
 });
+closePanelButton.addEventListener("click", closeRightPanel);
 addButton.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", async () => {
   const files = Array.from(fileInput.files || []).filter((file) => file.type.startsWith("image/"));

@@ -828,6 +828,7 @@ textarea::placeholder {
 }
 
 .panel-card {
+  min-width: 0;
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -837,11 +838,38 @@ textarea::placeholder {
 
 .panel-title {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
   color: var(--muted);
   font-size: 14px;
+}
+
+.panel-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.panel-close:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .artifact-row,
@@ -888,6 +916,7 @@ textarea::placeholder {
 }
 
 .artifact-preview {
+  min-width: 0;
   max-height: 360px;
   overflow: auto;
   margin: 12px 0 0;
@@ -944,6 +973,7 @@ textarea::placeholder {
 }
 
 .artifact-preview pre {
+  max-width: 100%;
   overflow-x: auto;
   border-radius: 9px;
   padding: 10px 12px;
