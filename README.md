@@ -97,6 +97,7 @@ The current phone bridge supports:
 - switching approval/sandbox mode for the next turn through `turn/start`
 - previewing repository files in the artifact panel
 - attaching browser-selected images by saving them locally and sending them as `localImage` inputs
+- rendering user and assistant chat messages as Markdown previews instead of plain text
 - sending prompts from the phone
 - streaming assistant text back to the phone
 - showing command/file-change approval requests with approve/decline buttons
@@ -113,6 +114,8 @@ This is not a pixel-for-pixel mirror of the Codex Desktop app. It is a browser c
 The bridge was smoke-tested locally by sending `Reply exactly: PHONE_BRIDGE_OK` through the phone WebSocket path and receiving `PHONE_BRIDGE_OK`.
 
 The expanded desktop-style controls were smoke-tested by pressing the visible browser UI buttons for search, plugins, automations, settings, model selection, access mode, background status, web-search prompt insertion, artifact preview, and send. The send check used `Reply exactly: BUTTON_SMOKE_OK` and received `BUTTON_SMOKE_OK`.
+
+Markdown rendering was smoke-tested through the browser composer with a heading, bullet list, inline code, link, and fenced code block. Both the user message and assistant response rendered as previews.
 
 ## UI Verification Screenshots
 
@@ -153,6 +156,12 @@ Expanded Desktop-like controls:
 ![Plugin list button screenshot](docs/assets/desktop-feature-plugins.png)
 
 ![Expanded mobile controls screenshot](docs/assets/desktop-feature-mobile.png)
+
+Markdown preview checks:
+
+![Markdown preview chat screenshot](docs/assets/markdown-preview-chat.png)
+
+![Markdown preview mobile screenshot](docs/assets/markdown-preview-mobile.png)
 
 ## Observed WebSocket Behavior
 

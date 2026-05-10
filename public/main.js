@@ -63,6 +63,130 @@ function titleForThread(thread) {
   return firstLine.length > 54 ? `${firstLine.slice(0, 54)}...` : firstLine;
 }
 
+function isBlockStart(line) {
+  return (
+    /^```/.test(line) ||
+    /^#{1,4}\s+/.test(line) ||
+    /^>\s?/.test(line) ||
+    /^\s*[-*]\s+/.test(line) ||
+    /^\s*\d+[.)]\s+/.test(line)
+  );
+}
+
+function sanitizeHref(value) {
+  try {
+    const url = new URL(value, location.href);
+    if (url.protocol === "http:" || url.protocol === "https:" || url.protocol === "mailto:") return url.href;
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function renderInlineMarkdown(text) {
+  const codeTokens = [];
+  let source = String(text).replace(/`([^`]+)`/g, (_, code) => {
+    const token = `\u0000CODE${codeTokens.length}\u0000`;
+    codeTokens.push(escapeHtml(code));
+    return token;
+  });
+
+  source = escapeHtml(source)
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, href) => {
+      const safeHref = sanitizeHref(href);
+      if (!safeHref) return label;
+      return `<a href="${escapeHtml(safeHref)}" target="_blank" rel="noreferrer">${label}</a>`;
+    })
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>");
+
+  return source.replace(/\u0000CODE(\d+)\u0000/g, (_, index) => `<code>${codeTokens[Number(index)] || ""}</code>`);
+}
+
+function renderMarkdown(text) {
+  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const fence = line.match(/^```\s*([a-z0-9_-]+)?\s*$/i);
+    if (fence) {
+      const code = [];
+      index += 1;
+      while (index < lines.length && !/^```/.test(lines[index])) {
+        code.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      const language = fence[1] ? ` data-language="${escapeHtml(fence[1])}"` : "";
+      blocks.push(`<pre${language}><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      const level = Math.min(heading[1].length + 1, 5);
+      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      index += 1;
+      continue;
+    }
+
+    if (/^>\s?/.test(line)) {
+      const quote = [];
+      while (index < lines.length && /^>\s?/.test(lines[index])) {
+        quote.push(lines[index].replace(/^>\s?/, ""));
+        index += 1;
+      }
+      blocks.push(`<blockquote>${quote.map(renderInlineMarkdown).join("<br>")}</blockquote>`);
+      continue;
+    }
+
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items = [];
+      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*[-*]\s+/, ""));
+        index += 1;
+      }
+      blocks.push(`<ul>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+      continue;
+    }
+
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items = [];
+      while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*\d+[.)]\s+/, ""));
+        index += 1;
+      }
+      blocks.push(`<ol>${items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ol>`);
+      continue;
+    }
+
+    const paragraph = [line.trim()];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !isBlockStart(lines[index])) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    blocks.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+  }
+
+  return blocks.join("");
+}
+
+function setEntryText(body, kind, text) {
+  body.markdownSource = text || "";
+  if (kind === "assistant" || kind === "user") body.innerHTML = renderMarkdown(body.markdownSource);
+  else body.textContent = body.markdownSource;
+}
+
 function addEntry(kind, text) {
   const el = document.createElement("article");
   el.className = `entry ${kind}`;
@@ -73,7 +197,7 @@ function addEntry(kind, text) {
 
   const body = document.createElement("div");
   body.className = "entry-body";
-  body.textContent = text;
+  setEntryText(body, kind, text);
 
   const tools = document.createElement("div");
   tools.className = "entry-tools";
@@ -356,7 +480,7 @@ function connect() {
     }
     if (msg.type === "assistantDelta") {
       if (!assistantEntry) assistantEntry = addEntry("assistant", "");
-      assistantEntry.textContent += msg.text;
+      setEntryText(assistantEntry, "assistant", `${assistantEntry.markdownSource || ""}${msg.text}`);
       log.scrollTop = log.scrollHeight;
       return;
     }
