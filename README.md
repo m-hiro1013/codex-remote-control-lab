@@ -99,8 +99,10 @@ The current phone bridge supports:
 - rendering Markdown artifacts, such as `README.md`, as previews in the artifact panel
 - attaching browser-selected images by saving them locally and sending them as `localImage` inputs
 - previewing attached images in the composer and chat transcript
+- rendering Markdown image links directly in the chat transcript where possible
 - previewing image artifacts from `docs/assets` in the artifact panel
 - rendering user and assistant chat messages as Markdown previews instead of plain text
+- keeping chat Markdown typography on one compact size scale so lists do not become visually louder than paragraphs
 - collapsing consecutive status/tool logs into summary rows that can be expanded on demand
 - sending prompts from the phone
 - streaming assistant text back to the phone
@@ -182,6 +184,10 @@ Image preview checks:
 ![Chat image preview screenshot](docs/assets/chat-image-preview.png)
 
 ![Image artifact preview screenshot](docs/assets/image-artifact-preview.png)
+
+Compact chat typography with image-link preview:
+
+![Compact chat font with image preview screenshot](docs/assets/chat-font-image-preview.png)
 
 ## Observed WebSocket Behavior
 

@@ -244,10 +244,30 @@ function serveStatic(req, res) {
 
 function summarizeItem(item) {
   if (item.type === "userMessage") {
+    const textParts = [];
+    const attachments = [];
+    for (const part of item.content) {
+      if (part.type === "text") {
+        textParts.push(part.text);
+        continue;
+      }
+      if (part.type === "localImage" && part.path) {
+        const absolutePath = path.resolve(part.path);
+        if (absolutePath.startsWith(`${uploadDir}${path.sep}`)) {
+          attachments.push({
+            name: path.basename(absolutePath),
+            url: `/api/uploaded?name=${encodeURIComponent(path.basename(absolutePath))}`,
+          });
+        } else if (absolutePath.startsWith(`${root}${path.sep}`) && isImagePath(absolutePath)) {
+          const relative = path.relative(root, absolutePath);
+          attachments.push({ name: path.basename(absolutePath), url: `/api/file/raw?path=${encodeURIComponent(relative)}` });
+        }
+      }
+    }
     return {
       type: "user",
-      text: item.content.map((part) => (part.type === "text" ? part.text : `[${part.type}]`)).join("\n"),
-      attachments: [],
+      text: textParts.join("\n") || (attachments.length ? "添付画像" : ""),
+      attachments,
     };
   }
   if (item.type === "agentMessage") return { type: "assistant", text: item.text };

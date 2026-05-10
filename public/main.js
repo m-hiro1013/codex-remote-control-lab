@@ -84,16 +84,40 @@ function sanitizeHref(value) {
   return "";
 }
 
+function isImageHref(value) {
+  return /\.(png|jpe?g|gif|webp|svg)(?:[?#].*)?$/i.test(String(value || ""));
+}
+
+function normalizeImageHref(value) {
+  if (/^https?:\/\//i.test(value)) return value;
+  const clean = String(value || "").replace(/^\.\//, "");
+  if (clean.startsWith("docs/assets/")) return urlWithToken(`/api/file/raw?path=${encodeURIComponent(clean)}`);
+  return value;
+}
+
 function renderInlineMarkdown(text) {
   const codeTokens = [];
+  const imageTokens = [];
   let source = String(text).replace(/`([^`]+)`/g, (_, code) => {
     const token = `\u0000CODE${codeTokens.length}\u0000`;
     codeTokens.push(escapeHtml(code));
     return token;
   });
 
+  source = source.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, label, href) => {
+    if (!isImageHref(href)) return _;
+    const token = `\u0000IMAGE${imageTokens.length}\u0000`;
+    imageTokens.push({ name: label || href.split("/").pop(), url: normalizeImageHref(href) });
+    return token;
+  });
+
   source = escapeHtml(source)
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, href) => {
+      if (isImageHref(href)) {
+        const token = `\u0000IMAGE${imageTokens.length}\u0000`;
+        imageTokens.push({ name: label, url: normalizeImageHref(href) });
+        return token;
+      }
       const safeHref = sanitizeHref(href);
       if (!safeHref) return label;
       return `<a href="${escapeHtml(safeHref)}" target="_blank" rel="noreferrer">${label}</a>`;
@@ -103,7 +127,13 @@ function renderInlineMarkdown(text) {
     .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
     .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>");
 
-  return source.replace(/\u0000CODE(\d+)\u0000/g, (_, index) => `<code>${codeTokens[Number(index)] || ""}</code>`);
+  return source
+    .replace(/\u0000CODE(\d+)\u0000/g, (_, index) => `<code>${codeTokens[Number(index)] || ""}</code>`)
+    .replace(/\u0000IMAGE(\d+)\u0000/g, (_, index) => {
+      const image = imageTokens[Number(index)];
+      if (!image) return "";
+      return `<figure class="image-preview markdown-image"><img src="${escapeHtml(image.url)}" alt="${escapeHtml(image.name || "image")}" loading="lazy"><figcaption>${escapeHtml(image.name || "image")}</figcaption></figure>`;
+    });
 }
 
 function renderMarkdown(text) {
