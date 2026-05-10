@@ -59,6 +59,7 @@ let threadCache = [];
 let liveTurnActive = false;
 let lastHistorySignature = "";
 let lastThreadRefreshError = "";
+let selectedThreadRefreshActive = false;
 let selectedModel = localStorage.getItem("codexPhoneModel") || "";
 let selectedModelLabel = localStorage.getItem("codexPhoneModelLabel") || "5.5";
 let selectedReasoning = localStorage.getItem("codexPhoneReasoning") || "中";
@@ -695,7 +696,8 @@ async function loadThreads() {
 }
 
 async function refreshSelectedThread() {
-  if (!selectedThread || liveTurnActive) return;
+  if (!selectedThread || liveTurnActive || selectedThreadRefreshActive) return;
+  selectedThreadRefreshActive = true;
   try {
     const result = await apiGet(`/api/thread?thread=${encodeURIComponent(selectedThread)}`);
     if (result.threadId !== selectedThread) return;
@@ -707,6 +709,8 @@ async function refreshSelectedThread() {
       lastThreadRefreshError = message;
       addEntry("error", `thread更新を読めませんでした: ${message}`);
     }
+  } finally {
+    selectedThreadRefreshActive = false;
   }
 }
 
