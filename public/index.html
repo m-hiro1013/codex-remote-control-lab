@@ -3,39 +3,96 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Codex Phone Bridge</title>
+    <title>Codex Remote</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <h1>Codex</h1>
-          <p id="meta">接続準備中</p>
+    <main class="app-shell">
+      <aside class="sidebar" aria-label="スレッド">
+        <div class="window-dots" aria-hidden="true">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green"></span>
         </div>
-        <div class="top-actions">
-          <select id="threads" aria-label="既存thread"></select>
-          <button id="connect" type="button">接続</button>
+        <nav class="primary-nav">
+          <button type="button" class="nav-command" id="newThread">新しいチャット</button>
+          <button type="button" class="nav-command muted">検索</button>
+          <button type="button" class="nav-command muted">プラグイン</button>
+          <button type="button" class="nav-command muted">オートメーション</button>
+        </nav>
+        <div class="thread-section">
+          <div class="section-title">最近のチャット</div>
+          <div id="threadList" class="thread-list"></div>
         </div>
-      </header>
+        <button type="button" class="settings">設定</button>
+      </aside>
 
-      <section id="log" class="log" aria-live="polite"></section>
+      <section class="workspace">
+        <header class="titlebar">
+          <button type="button" class="mobile-toggle" id="mobileThreads">チャット</button>
+          <div class="title-stack">
+            <h1 id="threadTitle">Codex Remote</h1>
+            <p id="meta">接続準備中</p>
+          </div>
+          <div class="title-actions">
+            <button id="connect" type="button" class="icon-button" title="再接続">↻</button>
+            <button type="button" class="icon-button" title="メニュー">…</button>
+          </div>
+        </header>
 
-      <section id="approval" class="approval hidden">
-        <div>
-          <strong>承認リクエスト</strong>
-          <pre id="approvalText"></pre>
-        </div>
-        <div class="actions">
-          <button id="decline" type="button" class="secondary">拒否</button>
-          <button id="approve" type="button">承認</button>
+        <div class="content-grid">
+          <section class="conversation" aria-label="会話">
+            <div id="log" class="log" aria-live="polite"></div>
+            <section id="approval" class="approval hidden">
+              <div>
+                <strong>承認リクエスト</strong>
+                <pre id="approvalText"></pre>
+              </div>
+              <div class="actions">
+                <button id="decline" type="button" class="secondary">拒否</button>
+                <button id="approve" type="button">承認</button>
+              </div>
+            </section>
+            <form id="composer" class="composer">
+              <div class="attachments" aria-hidden="true"></div>
+              <textarea id="prompt" rows="3" placeholder="フォローアップの変更を求める"></textarea>
+              <div class="composer-footer">
+                <div class="composer-left">
+                  <button type="button" class="ghost-button">＋</button>
+                  <button type="button" class="access-button">フルアクセス⌄</button>
+                </div>
+                <div class="composer-right">
+                  <span id="modelLabel">5.5 中⌄</span>
+                  <button type="button" class="ghost-button">◌</button>
+                  <button id="send" type="submit" class="send-button" title="送信">↑</button>
+                </div>
+              </div>
+            </form>
+          </section>
+
+          <aside class="artifact-panel" aria-label="アーティファクト">
+            <section class="panel-card">
+              <div class="panel-title">
+                <span>アーティファクト</span>
+                <span>◆</span>
+              </div>
+              <button type="button" class="artifact-row">README.md</button>
+              <button type="button" class="artifact-row">AGENTS.md</button>
+            </section>
+            <section class="panel-card">
+              <div class="panel-title">
+                <span>バックグラウンド ターミナル</span>
+                <span>▪</span>
+              </div>
+              <div class="terminal-row">npm run phone</div>
+            </section>
+            <section class="panel-card">
+              <div class="panel-title">情報源</div>
+              <div class="source-row">ウェブ検索</div>
+            </section>
+          </aside>
         </div>
       </section>
-
-      <form id="composer" class="composer">
-        <textarea id="prompt" rows="3" placeholder="Codexへの指示を書く"></textarea>
-        <button id="send" type="submit">送信</button>
-      </form>
     </main>
 
     <script src="/main.js"></script>

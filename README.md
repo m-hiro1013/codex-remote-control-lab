@@ -85,6 +85,7 @@ PHONE_TOKEN=choose-your-own-token npm run phone
 
 The current phone bridge supports:
 
+- a Codex Desktop-like browser layout with a left thread sidebar, central conversation, right artifact panel, and bottom composer
 - starting a Codex thread
 - sharing the same bridge thread across multiple browsers, such as a PC browser and a phone browser
 - listing recent existing Codex threads from `~/.codex` and resuming one from the browser UI

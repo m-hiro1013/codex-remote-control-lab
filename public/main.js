@@ -1,7 +1,10 @@
 const log = document.querySelector("#log");
 const meta = document.querySelector("#meta");
 const connectButton = document.querySelector("#connect");
-const threads = document.querySelector("#threads");
+const newThreadButton = document.querySelector("#newThread");
+const mobileThreadsButton = document.querySelector("#mobileThreads");
+const threadList = document.querySelector("#threadList");
+const threadTitle = document.querySelector("#threadTitle");
 const composer = document.querySelector("#composer");
 const promptInput = document.querySelector("#prompt");
 const sendButton = document.querySelector("#send");
@@ -18,14 +21,34 @@ if (token) localStorage.setItem("codexPhoneToken", token);
 let ws = null;
 let pendingApproval = null;
 let assistantEntry = null;
+let threadCache = [];
+
+function titleForThread(thread) {
+  const raw = thread.name || thread.preview || thread.cwd || thread.id;
+  const firstLine = raw.split("\n").find(Boolean) || thread.id;
+  return firstLine.length > 54 ? `${firstLine.slice(0, 54)}...` : firstLine;
+}
 
 function addEntry(kind, text) {
-  const el = document.createElement("div");
+  const el = document.createElement("article");
   el.className = `entry ${kind}`;
-  el.textContent = text;
+
+  const avatar = document.createElement("div");
+  avatar.className = "entry-avatar";
+  avatar.textContent = kind === "user" ? "U" : kind === "assistant" ? "C" : "›";
+
+  const body = document.createElement("div");
+  body.className = "entry-body";
+  body.textContent = text;
+
+  const tools = document.createElement("div");
+  tools.className = "entry-tools";
+  tools.textContent = kind === "assistant" ? "□  ↗" : "";
+
+  el.append(avatar, body, tools);
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
-  return el;
+  return body;
 }
 
 function setReady(ready) {
@@ -38,27 +61,50 @@ function renderHistory(history) {
   for (const entry of history || []) addEntry(entry.type, entry.text);
 }
 
+function renderThreadList() {
+  threadList.replaceChildren();
+  const fresh = document.createElement("button");
+  fresh.type = "button";
+  fresh.className = selectedThread ? "thread-item" : "thread-item active";
+  fresh.textContent = "新しい共有thread";
+  fresh.addEventListener("click", () => selectThread(""));
+  threadList.appendChild(fresh);
+
+  for (const thread of threadCache) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = thread.id === selectedThread ? "thread-item active" : "thread-item";
+    item.textContent = titleForThread(thread);
+    item.title = titleForThread(thread);
+    item.addEventListener("click", () => selectThread(thread.id));
+    threadList.appendChild(item);
+  }
+}
+
 async function loadThreads() {
   if (!token) return;
   try {
     const response = await fetch(`/api/threads?token=${encodeURIComponent(token)}`, { cache: "no-store" });
     const result = await response.json();
-    threads.replaceChildren();
-    const fresh = document.createElement("option");
-    fresh.value = "";
-    fresh.textContent = "新しい共有thread";
-    threads.appendChild(fresh);
-    for (const thread of result.data || []) {
-      const option = document.createElement("option");
-      option.value = thread.id;
-      const title = thread.name || thread.preview || thread.cwd || thread.id;
-      option.textContent = title.length > 42 ? `${title.slice(0, 42)}...` : title;
-      threads.appendChild(option);
-    }
-    threads.value = selectedThread;
+    threadCache = result.data || [];
+    renderThreadList();
   } catch (error) {
     addEntry("error", `thread一覧を読めませんでした: ${error.message}`);
   }
+}
+
+function updateUrlThread() {
+  const next = new URL(location.href);
+  if (selectedThread) next.searchParams.set("thread", selectedThread);
+  else next.searchParams.delete("thread");
+  history.replaceState(null, "", next);
+}
+
+function selectThread(threadId) {
+  selectedThread = threadId;
+  updateUrlThread();
+  renderThreadList();
+  connect();
 }
 
 function connect() {
@@ -68,6 +114,9 @@ function connect() {
   }
   if (ws) ws.close();
   renderHistory([]);
+  const selected = threadCache.find((thread) => thread.id === selectedThread);
+  threadTitle.textContent = selected ? titleForThread(selected) : "新しい共有thread";
+
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const threadParam = selectedThread ? `&thread=${encodeURIComponent(selectedThread)}` : "";
   ws = new WebSocket(`${proto}//${location.host}/bridge?token=${encodeURIComponent(token)}${threadParam}`);
@@ -75,7 +124,7 @@ function connect() {
   meta.textContent = "接続中";
 
   ws.addEventListener("open", () => {
-    addEntry("status", "スマホUIからMacのブリッジへ接続しました。");
+    addEntry("status", "Macの共有ブリッジへ接続しました。");
   });
 
   ws.addEventListener("message", (event) => {
@@ -83,7 +132,7 @@ function connect() {
     if (msg.type === "ready") {
       setReady(true);
       renderHistory(msg.history || []);
-      meta.textContent = `${msg.model} / ${msg.workdir} / ${msg.clients}端末`;
+      meta.textContent = `${msg.model}  •  ${msg.clients}端末  •  ${msg.workdir}`;
       addEntry("status", `共有Codex thread ready: ${msg.threadId}`);
       return;
     }
@@ -106,6 +155,7 @@ function connect() {
     }
     if (msg.type === "turn" && msg.status === "completed") {
       assistantEntry = null;
+      loadThreads();
       return;
     }
     if (msg.type === "error") {
@@ -123,15 +173,6 @@ function connect() {
     meta.textContent = "切断";
   });
 }
-
-threads.addEventListener("change", () => {
-  selectedThread = threads.value;
-  const next = new URL(location.href);
-  if (selectedThread) next.searchParams.set("thread", selectedThread);
-  else next.searchParams.delete("thread");
-  history.replaceState(null, "", next);
-  connect();
-});
 
 composer.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -155,6 +196,9 @@ declineButton.addEventListener("click", () => {
   pendingApproval = null;
 });
 
+newThreadButton.addEventListener("click", () => selectThread(""));
+mobileThreadsButton.addEventListener("click", () => document.body.classList.toggle("show-sidebar"));
 connectButton.addEventListener("click", connect);
+
 setReady(false);
 loadThreads().finally(connect);
