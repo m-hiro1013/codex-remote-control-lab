@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { liveBridgeSnapshot, readThreadSnapshot } = require("./thread-read");
+const { findLiveBridge, liveBridgeSnapshot, readThreadSnapshot } = require("./thread-read");
 
 test("liveBridgeSnapshot returns ready in-memory bridge history", () => {
   assert.deepEqual(
@@ -20,6 +20,20 @@ test("liveBridgeSnapshot returns ready in-memory bridge history", () => {
       source: "live-bridge",
     },
   );
+});
+
+test("findLiveBridge finds bridges by promoted thread id", () => {
+  const bridge = { threadId: "thread-123", requestedThreadId: null };
+  const bridges = new Map([["thread-123", bridge]]);
+
+  assert.equal(findLiveBridge(bridges, "thread-123"), bridge);
+});
+
+test("findLiveBridge finds starting bridges by requested thread id", () => {
+  const bridge = { threadId: null, requestedThreadId: "thread-123" };
+  const bridges = new Map([["connection-temp-key", bridge]]);
+
+  assert.equal(findLiveBridge(bridges, "thread-123"), bridge);
 });
 
 test("readThreadSnapshot does not call app-server for a live bridge thread", async () => {

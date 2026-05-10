@@ -9,7 +9,7 @@ const WebSocket = require("ws");
 const { bridgeKeyForRequest, shouldDisposeIdleBridge, shouldPromoteBridgeKey } = require("./bridge-state");
 const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
 const { bridgeUrls, notifyBridgeUrls } = require("./phone-notify");
-const { readThreadSnapshot } = require("./thread-read");
+const { findLiveBridge, readThreadSnapshot } = require("./thread-read");
 
 const root = path.resolve(__dirname, "..");
 
@@ -806,7 +806,7 @@ async function main() {
       try {
         const snapshot = await readThreadSnapshot({
           threadId,
-          liveBridge: bridges.get(threadId),
+          liveBridge: findLiveBridge(bridges, threadId),
           request: appServerRequest,
           model,
           workdir,

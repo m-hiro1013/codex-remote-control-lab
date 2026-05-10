@@ -10,6 +10,16 @@ function liveBridgeSnapshot(bridge, threadId) {
   };
 }
 
+function findLiveBridge(bridges, threadId) {
+  if (!bridges || !threadId) return null;
+  const direct = bridges.get?.(threadId);
+  if (direct) return direct;
+  for (const bridge of bridges.values?.() || []) {
+    if (bridge.threadId === threadId || bridge.requestedThreadId === threadId) return bridge;
+  }
+  return null;
+}
+
 async function readThreadSnapshot({ threadId, liveBridge, request, model, workdir, historyFromThread }) {
   const liveSnapshot = liveBridgeSnapshot(liveBridge, threadId);
   if (liveSnapshot) return liveSnapshot;
@@ -40,6 +50,7 @@ async function readThreadSnapshot({ threadId, liveBridge, request, model, workdi
 }
 
 module.exports = {
+  findLiveBridge,
   liveBridgeSnapshot,
   readThreadSnapshot,
 };
