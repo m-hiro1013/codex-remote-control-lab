@@ -199,8 +199,9 @@ async function setTheme(page, theme) {
 async function run() {
   fs.mkdirSync(assetsDir, { recursive: true });
   const { server, origin } = await startServer();
-  const browser = await chromium.launch();
+  let browser;
   try {
+    browser = await chromium.launch();
     let page = await newPage(browser, origin, { width: 1440, height: 900 });
     await setTheme(page, "simple");
     await snap(page, "desktop-like-ui-desktop.png");
@@ -247,7 +248,7 @@ async function run() {
 
     console.log("Captured README screenshots in docs/assets");
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
     await new Promise((resolve) => server.close(resolve));
   }
 }
