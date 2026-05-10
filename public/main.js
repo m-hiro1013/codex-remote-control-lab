@@ -188,6 +188,31 @@ function setEntryText(body, kind, text) {
   else body.textContent = body.markdownSource;
 }
 
+function urlWithToken(url) {
+  const target = new URL(url, location.href);
+  target.searchParams.set("token", token);
+  return target.pathname + target.search;
+}
+
+function renderImageGallery(images = []) {
+  if (!images.length) return null;
+  const gallery = document.createElement("div");
+  gallery.className = "image-gallery";
+  for (const image of images) {
+    const figure = document.createElement("figure");
+    figure.className = "image-preview";
+    const img = document.createElement("img");
+    img.src = image.dataUrl || urlWithToken(image.url);
+    img.alt = image.name || "添付画像";
+    img.loading = "lazy";
+    const caption = document.createElement("figcaption");
+    caption.textContent = image.name || "image";
+    figure.append(img, caption);
+    gallery.appendChild(figure);
+  }
+  return gallery;
+}
+
 function summarizeStatus(items) {
   const reads = items.filter((item) => /^Read\s+/i.test(item)).length;
   const commands = items.filter((item) => /command|コマンド|\$\s/.test(item)).length;
@@ -247,7 +272,7 @@ function addStatusGroupItem(text) {
   log.scrollTop = log.scrollHeight;
 }
 
-function addEntry(kind, text) {
+function addEntry(kind, text, images = []) {
   if (kind === "status") {
     addStatusGroupItem(text);
     return null;
@@ -263,6 +288,8 @@ function addEntry(kind, text) {
   const body = document.createElement("div");
   body.className = "entry-body";
   setEntryText(body, kind, text);
+  const gallery = kind === "user" ? renderImageGallery(images) : null;
+  if (gallery) body.appendChild(gallery);
 
   const tools = document.createElement("div");
   tools.className = "entry-tools";
@@ -286,7 +313,7 @@ function setReady(ready) {
 function renderHistory(history) {
   log.replaceChildren();
   statusGroup = null;
-  for (const entry of history || []) addEntry(entry.type, entry.text);
+  for (const entry of history || []) addEntry(entry.type, entry.text, entry.attachments || []);
 }
 
 function renderThreadList() {
@@ -333,6 +360,16 @@ async function loadThreads() {
   }
 }
 
+async function loadArtifacts() {
+  if (!token) return;
+  try {
+    const result = await apiGet("/api/artifacts");
+    renderArtifactIndex(result.data || []);
+  } catch (error) {
+    addEntry("error", `artifact一覧を読めませんでした: ${error.message}`);
+  }
+}
+
 function updateUrlThread() {
   const next = new URL(location.href);
   if (selectedThread) next.searchParams.set("thread", selectedThread);
@@ -368,6 +405,17 @@ function addPanelRow(text, detail, onClick) {
   if (onClick) row.addEventListener("click", onClick);
   artifactList.appendChild(row);
   return row;
+}
+
+function renderArtifactIndex(items) {
+  artifactTitle.textContent = "アーティファクト";
+  artifactList.replaceChildren();
+  artifactPreview.classList.add("hidden");
+  artifactPreview.textContent = "";
+  for (const item of items) {
+    const icon = item.kind === "image" ? "画像" : item.kind === "markdown" ? "MD" : "FILE";
+    addPanelRow(item.name, `${icon} · ${item.path}`, () => showArtifact(item.path));
+  }
 }
 
 function escapeHtml(value) {
@@ -478,18 +526,26 @@ async function showArtifact(path) {
     const result = await apiGet(`/api/file?path=${encodeURIComponent(path)}`);
     artifactList.replaceChildren();
     addPanelRow(result.path, "ローカルファイル");
-    setArtifactPreview(result.path, result.text);
+    setArtifactPreview(result);
     artifactPreview.classList.remove("hidden");
   } catch (error) {
     showToolError("アーティファクト", error);
   }
 }
 
-function setArtifactPreview(filePath, text) {
-  const isMarkdown = /\.md(?:own)?$/i.test(filePath);
+function setArtifactPreview(result) {
+  const isImage = result.kind === "image";
+  const isMarkdown = result.kind === "markdown" || /\.md(?:own)?$/i.test(result.path);
+  artifactPreview.classList.toggle("image-artifact-preview", isImage);
   artifactPreview.classList.toggle("markdown-preview", isMarkdown);
-  artifactPreview.classList.toggle("plain-preview", !isMarkdown);
-  artifactPreview.innerHTML = isMarkdown ? renderMarkdown(text) : `<pre><code>${escapeHtml(text)}</code></pre>`;
+  artifactPreview.classList.toggle("plain-preview", !isMarkdown && !isImage);
+  if (isImage) {
+    artifactPreview.innerHTML = "";
+    const gallery = renderImageGallery([{ name: result.path, url: result.imageUrl }]);
+    artifactPreview.appendChild(gallery);
+    return;
+  }
+  artifactPreview.innerHTML = isMarkdown ? renderMarkdown(result.text) : `<pre><code>${escapeHtml(result.text)}</code></pre>`;
 }
 
 function renderAttachments() {
@@ -499,7 +555,14 @@ function renderAttachments() {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "attachment-chip";
-    chip.textContent = `${file.name} ×`;
+    const thumb = document.createElement("img");
+    thumb.src = file.dataUrl;
+    thumb.alt = "";
+    const label = document.createElement("span");
+    label.textContent = file.name;
+    const close = document.createElement("span");
+    close.textContent = "×";
+    chip.append(thumb, label, close);
     chip.addEventListener("click", () => {
       pendingFiles = pendingFiles.filter((candidate) => candidate !== file);
       renderAttachments();
@@ -548,7 +611,7 @@ function connect() {
     }
     if (msg.type === "user") {
       assistantEntry = null;
-      addEntry("user", msg.text);
+      addEntry("user", msg.text, msg.attachments || []);
       return;
     }
     if (msg.type === "assistantDelta") {
@@ -672,4 +735,5 @@ for (const button of artifactButtons) {
 }
 
 setReady(false);
+loadArtifacts();
 loadThreads().finally(connect);

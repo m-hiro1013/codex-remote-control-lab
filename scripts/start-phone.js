@@ -16,6 +16,14 @@ const model = process.env.CODEX_MODEL || "gpt-5.4";
 const tokenPath = path.join(root, ".phone-token");
 const uploadDir = path.join(root, ".uploads");
 const bridges = new Map();
+const imageExtensions = new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+  [".svg", "image/svg+xml"],
+]);
 
 function getToken() {
   if (process.env.PHONE_TOKEN) return process.env.PHONE_TOKEN;
@@ -136,6 +144,38 @@ function safeRelativePath(input) {
   return target;
 }
 
+function safeUploadPath(input) {
+  const clean = String(input || "").replace(/^[/\\]+/, "");
+  const target = path.resolve(uploadDir, clean);
+  if (!target.startsWith(`${uploadDir}${path.sep}`) && target !== uploadDir) return null;
+  return target;
+}
+
+function mimeForPath(filePath) {
+  return imageExtensions.get(path.extname(filePath).toLowerCase()) || "application/octet-stream";
+}
+
+function isImagePath(filePath) {
+  return imageExtensions.has(path.extname(filePath).toLowerCase());
+}
+
+function discoverArtifacts() {
+  const files = ["README.md", "AGENTS.md"];
+  const assetsDir = path.join(root, "docs", "assets");
+  if (fs.existsSync(assetsDir)) {
+    for (const name of fs.readdirSync(assetsDir).sort()) {
+      const relative = path.join("docs", "assets", name);
+      const full = path.join(root, relative);
+      if (fs.statSync(full).isFile() && (isImagePath(full) || /\.md(?:own)?$/i.test(name))) files.push(relative);
+    }
+  }
+  return files.map((file) => ({
+    path: file,
+    name: path.basename(file),
+    kind: isImagePath(file) ? "image" : /\.md(?:own)?$/i.test(file) ? "markdown" : "file",
+  }));
+}
+
 function readAutomations() {
   const home = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
   const automationsDir = path.join(home, "automations");
@@ -166,7 +206,10 @@ function saveDataUrlAttachment(attachment) {
   const fileName = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}-${safeName || "image"}.${extension}`;
   const target = path.join(uploadDir, fileName);
   fs.writeFileSync(target, Buffer.from(match[2], "base64"), { mode: 0o600 });
-  return { type: "localImage", path: target };
+  return {
+    input: { type: "localImage", path: target },
+    preview: { name: attachment.name || fileName, path: fileName, url: `/api/uploaded?name=${encodeURIComponent(fileName)}` },
+  };
 }
 
 function sandboxPolicyForMode(mode) {
@@ -204,6 +247,7 @@ function summarizeItem(item) {
     return {
       type: "user",
       text: item.content.map((part) => (part.type === "text" ? part.text : `[${part.type}]`)).join("\n"),
+      attachments: [],
     };
   }
   if (item.type === "agentMessage") return { type: "assistant", text: item.text };
@@ -379,8 +423,8 @@ class SharedBridge {
     for (const attachment of attachments || []) {
       const saved = saveDataUrlAttachment(attachment);
       if (saved) {
-        input.push(saved);
-        savedImages.push(path.basename(saved.path));
+        input.push(saved.input);
+        savedImages.push(saved.preview);
       }
     }
     const params = {
@@ -394,9 +438,9 @@ class SharedBridge {
       ...params,
     });
     this.pending.set(id, "turn/start");
-    const displayText = savedImages.length ? `${text}\n\n添付: ${savedImages.join(", ")}` : text;
-    this.history.push({ type: "user", text: displayText });
-    this.emit("user", { text: displayText });
+    const displayText = savedImages.length ? `${text}\n\n添付: ${savedImages.map((image) => image.name).join(", ")}` : text;
+    this.history.push({ type: "user", text: displayText, attachments: savedImages });
+    this.emit("user", { text: displayText, attachments: savedImages });
   }
 
   approval(requestMsg, decision) {
@@ -524,6 +568,33 @@ async function main() {
       sendJson(res, 200, { data: readAutomations() });
       return;
     }
+    if (url.pathname === "/api/artifacts") {
+      if (!requireToken(url, phoneToken, res)) return;
+      sendJson(res, 200, { data: discoverArtifacts() });
+      return;
+    }
+    if (url.pathname === "/api/uploaded") {
+      if (!requireToken(url, phoneToken, res)) return;
+      const target = safeUploadPath(url.searchParams.get("name"));
+      if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile() || !isImagePath(target)) {
+        sendJson(res, 404, { error: "image not found" });
+        return;
+      }
+      res.writeHead(200, { "content-type": mimeForPath(target), "cache-control": "no-store" });
+      fs.createReadStream(target).pipe(res);
+      return;
+    }
+    if (url.pathname === "/api/file/raw") {
+      if (!requireToken(url, phoneToken, res)) return;
+      const target = safeRelativePath(url.searchParams.get("path"));
+      if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile() || !isImagePath(target)) {
+        sendJson(res, 404, { error: "image not found" });
+        return;
+      }
+      res.writeHead(200, { "content-type": mimeForPath(target), "cache-control": "no-store" });
+      fs.createReadStream(target).pipe(res);
+      return;
+    }
     if (url.pathname === "/api/file") {
       if (!requireToken(url, phoneToken, res)) return;
       const target = safeRelativePath(url.searchParams.get("path"));
@@ -531,8 +602,18 @@ async function main() {
         sendJson(res, 404, { error: "file not found" });
         return;
       }
+      if (isImagePath(target)) {
+        sendJson(res, 200, {
+          path: path.relative(root, target),
+          kind: "image",
+          mimeType: mimeForPath(target),
+          imageUrl: `/api/file/raw?path=${encodeURIComponent(path.relative(root, target))}`,
+        });
+        return;
+      }
       sendJson(res, 200, {
         path: path.relative(root, target),
+        kind: /\.md(?:own)?$/i.test(target) ? "markdown" : "text",
         text: fs.readFileSync(target, "utf8").slice(0, 80_000),
       });
       return;

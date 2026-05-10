@@ -348,6 +348,39 @@ body.hide-artifacts .artifact-panel {
   text-decoration: underline;
 }
 
+.image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 220px));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.image-preview {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f7f7f5;
+}
+
+.image-preview img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  background: #ededeb;
+}
+
+.image-preview figcaption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 7px 9px;
+  color: #777772;
+  font-size: 12px;
+}
+
 .entry.status .entry-body {
   color: #8a8a84;
   white-space: pre-wrap;
@@ -494,13 +527,29 @@ body.hide-artifacts .artifact-panel {
 }
 
 .attachment-chip {
-  max-width: 190px;
-  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 240px;
+  min-height: 38px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 0 10px;
+  padding: 4px 10px 4px 5px;
   background: #f7f7f5;
   color: #54544f;
+  overflow: hidden;
+}
+
+.attachment-chip img {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #e9e9e4;
+}
+
+.attachment-chip span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -729,6 +778,19 @@ textarea::placeholder {
 
 .artifact-preview a:hover {
   text-decoration: underline;
+}
+
+.artifact-preview.image-artifact-preview {
+  max-height: 520px;
+}
+
+.artifact-preview.image-artifact-preview .image-gallery {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 0;
+}
+
+.artifact-preview.image-artifact-preview .image-preview img {
+  max-height: 420px;
 }
 
 @media (max-width: 1100px) {
