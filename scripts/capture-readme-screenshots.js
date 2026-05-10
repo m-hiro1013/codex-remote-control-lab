@@ -162,13 +162,27 @@ async function snap(page, file) {
   await page.screenshot({ path: path.join(assetsDir, file), fullPage: false });
 }
 
+async function setTheme(page, theme) {
+  await page.evaluate((nextTheme) => {
+    localStorage.setItem("codexPhoneTheme", nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+  }, theme);
+  await page.waitForTimeout(150);
+}
+
 async function run() {
   fs.mkdirSync(assetsDir, { recursive: true });
   const { server, origin } = await startServer();
   const browser = await chromium.launch();
   try {
     let page = await newPage(browser, origin, { width: 1440, height: 900 });
+    await setTheme(page, "simple");
     await snap(page, "desktop-like-ui-desktop.png");
+    await snap(page, "theme-simple-desktop.png");
+    await setTheme(page, "cyberpunk");
+    await snap(page, "theme-cyberpunk-desktop.png");
+    await setTheme(page, "botanical");
+    await snap(page, "theme-botanical-desktop.png");
     await page.close();
 
     page = await newPage(browser, origin, { width: 1280, height: 720 });
@@ -184,10 +198,16 @@ async function run() {
     await page.waitForTimeout(200);
     await snap(page, "mobile-responsive-drawer.png");
     await page.evaluate(() => document.body.classList.remove("show-sidebar"));
+    await page.waitForTimeout(250);
     await page.evaluate(() => document.querySelector("#settingsButton").click());
+    await snap(page, "theme-simple-mobile-settings.png");
     await page.locator('[data-theme-choice="cyberpunk"]').click();
     await page.waitForTimeout(250);
     await snap(page, "theme-cyberpunk-mobile-settings.png");
+    await page.locator('[data-theme-choice="botanical"]').click();
+    await page.waitForTimeout(250);
+    await snap(page, "theme-botanical-mobile-settings.png");
+    await setTheme(page, "cyberpunk");
     await page.evaluate(() => document.body.classList.remove("show-panel"));
     await snap(page, "mobile-desktop-like-controls.png");
     await page.evaluate(() => document.querySelector("#modelButton").click());
