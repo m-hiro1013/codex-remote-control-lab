@@ -2,19 +2,32 @@
   "name": "codex-remote-control-lab",
   "version": "1.0.0",
   "description": "Local lab for OpenAI Codex CLI remote-control and app-server experiments.",
-  "main": "index.js",
+  "private": false,
+  "type": "commonjs",
   "scripts": {
     "version:codex": "codex --version",
     "help:remote-control": "codex remote-control --help",
     "server:ws": "mkdir -p .codex-home-ws && CODEX_HOME=$PWD/.codex-home-ws codex app-server --listen ws://127.0.0.1:45213",
     "probe:ws": "node scripts/probe-ws.js",
-    "phone": "node scripts/start-phone.js"
+    "phone": "node scripts/start-phone.js",
+    "check": "node --check scripts/start-phone.js && node --check scripts/probe-ws.js && node --check public/main.js",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "codex",
+    "remote-control",
+    "app-server",
+    "websocket",
+    "phone-bridge",
+    "local-first"
+  ],
+  "author": "Sunwood AI Labs",
   "license": "ISC",
   "devDependencies": {
     "@openai/codex": "^0.130.0",
+    "vitepress": "^1.6.4",
     "ws": "^8.20.0"
   }
 }

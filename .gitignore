@@ -1,6 +1,8 @@
 node_modules/
 .codex-home*/
 schemas/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
 *.log
 .phone-token
 .uploads/

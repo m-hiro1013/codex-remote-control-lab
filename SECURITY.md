@@ -1,0 +1,20 @@
+# Security Policy
+
+## Supported Scope
+
+This repository is an experimental local lab. The supported security posture is:
+
+- keep the Codex app-server bound to `127.0.0.1`
+- expose only the token-protected phone bridge to the LAN
+- treat `.phone-token`, `.uploads/`, `.codex-home*/`, and generated session databases as local-only state
+
+## Reporting
+
+If you find a security issue, open a private advisory or contact the repository owner before publishing details.
+
+## Public-Safe Checklist
+
+- Do not commit local tokens, generated Codex homes, session databases, logs, uploads, or private screenshots.
+- Do not bind `codex app-server` directly to a LAN or public interface without a separate authenticated private network.
+- Rotate `PHONE_TOKEN` or delete `.phone-token` after demos on shared networks.
+- Prefer SSH forwarding, a VPN, or a mesh network for access outside the local LAN.
