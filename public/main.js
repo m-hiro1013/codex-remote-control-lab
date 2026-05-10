@@ -110,7 +110,16 @@ function isImageHref(value) {
 function normalizeImageHref(value) {
   if (/^https?:\/\//i.test(value)) return value;
   const clean = String(value || "").replace(/^\.\//, "");
+  if (clean.startsWith("/api/file/raw") || clean.startsWith("/api/uploaded")) return urlWithToken(clean);
   if (clean.startsWith("docs/assets/")) return urlWithToken(`/api/file/raw?path=${encodeURIComponent(clean)}`);
+  const assetsIndex = clean.indexOf("/docs/assets/");
+  if (assetsIndex >= 0) {
+    const relativeAsset = clean.slice(assetsIndex + 1);
+    return urlWithToken(`/api/file/raw?path=${encodeURIComponent(relativeAsset)}`);
+  }
+  if (/^[^/\\]+$/.test(clean) && isImageHref(clean)) {
+    return urlWithToken(`/api/file/raw?path=${encodeURIComponent(`docs/assets/${clean}`)}`);
+  }
   return value;
 }
 
