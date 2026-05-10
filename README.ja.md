@@ -153,7 +153,10 @@ Model and intelligence menu on mobile:
 
 - Codex app-server は `127.0.0.1` に保ちます。
 - 認証なしの Codex app-server を LAN や public interface に直接 bind しないでください。
+- 表示された `?token=...` 付き URL は local access key として扱い、公開 issue、共有チャット、スクリーンショット、配信には載せないでください。
+- bridge は `Ctrl+C` で停止します。terminal を閉じた場合や PC を再起動した後は、もう一度 `npm run phone` を実行します。
 - trusted LAN 外から使う場合は SSH forwarding、VPN、mesh network を優先してください。
+- 認証なしの public tunnel や raw port forwarding で bridge を公開しないでください。
 - shared network で demo した後は `.phone-token` を削除するか `PHONE_TOKEN` を変更してください。
 
 公開安全 checklist は [SECURITY.md](SECURITY.md) にあります。
