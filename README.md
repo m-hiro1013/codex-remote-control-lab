@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/public/social-card.svg" alt="Codex Remote Control Lab" width="860">
+  <img src="docs/assets/codex-remote-control-lab-header.png" alt="Codex Remote Control Lab" style="width:100%;height:auto;">
 </p>
 
 <p align="center">
@@ -119,33 +119,75 @@ Desktop-like layout:
 
 ![Desktop-like UI desktop screenshot](docs/assets/desktop-like-ui-desktop.png)
 
-Mobile layout:
-
-![Desktop-like UI mobile screenshot](docs/assets/desktop-like-ui-mobile.png)
-
 Compact chat typography with image-link preview:
 
 ![Compact chat font with image preview screenshot](docs/assets/chat-font-image-preview.png)
 
-Mobile responsive chat check:
+Theme comparison:
 
-![Mobile responsive chat screenshot](docs/assets/mobile-responsive-chat.png)
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-simple-desktop.png" alt="Simple theme desktop screenshot" width="280"><br>
+      <sub>Simple desktop</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-cyberpunk-desktop.png" alt="Cyberpunk theme desktop screenshot" width="280"><br>
+      <sub>Cyberpunk desktop</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-botanical-desktop.png" alt="Botanical theme desktop screenshot" width="280"><br>
+      <sub>Botanical desktop</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-simple-mobile-settings.png" alt="Simple theme mobile settings screenshot" width="180"><br>
+      <sub>Simple settings</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-cyberpunk-mobile-settings.png" alt="Cyberpunk theme mobile settings screenshot" width="180"><br>
+      <sub>Cyberpunk settings</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-botanical-mobile-settings.png" alt="Botanical theme mobile settings screenshot" width="180"><br>
+      <sub>Botanical settings</sub>
+    </td>
+  </tr>
+</table>
 
-Mobile responsive drawer check:
+Mobile flow:
 
-![Mobile responsive drawer screenshot](docs/assets/mobile-responsive-drawer.png)
-
-Theme selector on mobile:
-
-![Cyberpunk theme settings screenshot](docs/assets/theme-cyberpunk-mobile-settings.png)
-
-Codex Desktop-like mobile composer controls:
-
-![Mobile desktop-like controls screenshot](docs/assets/mobile-desktop-like-controls.png)
-
-Model and intelligence menu on mobile:
-
-![Mobile model menu screenshot](docs/assets/mobile-model-menu.png)
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/assets/desktop-like-ui-mobile.png" alt="Desktop-like UI mobile screenshot" width="220"><br>
+      <sub>Mobile layout</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/mobile-responsive-chat.png" alt="Mobile responsive chat screenshot" width="220"><br>
+      <sub>Responsive chat</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/mobile-responsive-drawer.png" alt="Mobile responsive drawer screenshot" width="220"><br>
+      <sub>Thread drawer</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-cyberpunk-mobile-settings.png" alt="Cyberpunk theme settings screenshot" width="220"><br>
+      <sub>Theme settings</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/mobile-desktop-like-controls.png" alt="Mobile desktop-like controls screenshot" width="220"><br>
+      <sub>Composer controls</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/mobile-model-menu.png" alt="Mobile model menu screenshot" width="220"><br>
+      <sub>Model menu</sub>
+    </td>
+  </tr>
+</table>
 
 More screenshots are available in `docs/assets/` and through the artifact panel in the bridge UI.
 
@@ -153,7 +195,10 @@ More screenshots are available in `docs/assets/` and through the artifact panel 
 
 - Keep the Codex app-server on `127.0.0.1`.
 - Do not bind an unauthenticated Codex app-server to a LAN or public interface.
+- Treat the printed `?token=...` URL like a local access key. Do not post it in public issues, chats, screenshots, or streams.
+- Stop the bridge with `Ctrl+C`. If you close the terminal or restart the PC, run `npm run phone` again.
 - Use SSH forwarding, a VPN, or a mesh network for access outside a trusted LAN.
+- Do not expose the bridge through an unauthenticated public tunnel or raw port forward.
 - Delete `.phone-token` or set a new `PHONE_TOKEN` after demos on shared networks.
 
 See [SECURITY.md](SECURITY.md) for the public-safe checklist.

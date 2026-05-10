@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/public/social-card.svg" alt="Codex Remote Control Lab" width="860">
+  <img src="docs/assets/codex-remote-control-lab-header.png" alt="Codex Remote Control Lab" style="width:100%;height:auto;">
 </p>
 
 <p align="center">
@@ -119,33 +119,75 @@ Desktop-like layout:
 
 ![Desktop-like UI desktop screenshot](docs/assets/desktop-like-ui-desktop.png)
 
-Mobile layout:
-
-![Desktop-like UI mobile screenshot](docs/assets/desktop-like-ui-mobile.png)
-
 Compact chat typography with image-link preview:
 
 ![Compact chat font with image preview screenshot](docs/assets/chat-font-image-preview.png)
 
-Mobile responsive chat check:
+Theme comparison:
 
-![Mobile responsive chat screenshot](docs/assets/mobile-responsive-chat.png)
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-simple-desktop.png" alt="Simple theme desktop screenshot" width="280"><br>
+      <sub>シンプル desktop</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-cyberpunk-desktop.png" alt="Cyberpunk theme desktop screenshot" width="280"><br>
+      <sub>サイバーパンク desktop</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-botanical-desktop.png" alt="Botanical theme desktop screenshot" width="280"><br>
+      <sub>ボタニカル desktop</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-simple-mobile-settings.png" alt="Simple theme mobile settings screenshot" width="180"><br>
+      <sub>シンプル設定</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-cyberpunk-mobile-settings.png" alt="Cyberpunk theme mobile settings screenshot" width="180"><br>
+      <sub>サイバーパンク設定</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-botanical-mobile-settings.png" alt="Botanical theme mobile settings screenshot" width="180"><br>
+      <sub>ボタニカル設定</sub>
+    </td>
+  </tr>
+</table>
 
-Mobile responsive drawer check:
+Mobile flow:
 
-![Mobile responsive drawer screenshot](docs/assets/mobile-responsive-drawer.png)
-
-Theme selector on mobile:
-
-![Cyberpunk theme settings screenshot](docs/assets/theme-cyberpunk-mobile-settings.png)
-
-Codex Desktop-like mobile composer controls:
-
-![Mobile desktop-like controls screenshot](docs/assets/mobile-desktop-like-controls.png)
-
-Model and intelligence menu on mobile:
-
-![Mobile model menu screenshot](docs/assets/mobile-model-menu.png)
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/assets/desktop-like-ui-mobile.png" alt="Desktop-like UI mobile screenshot" width="220"><br>
+      <sub>モバイル全体</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/mobile-responsive-chat.png" alt="Mobile responsive chat screenshot" width="220"><br>
+      <sub>チャット表示</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/mobile-responsive-drawer.png" alt="Mobile responsive drawer screenshot" width="220"><br>
+      <sub>スレッド drawer</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/assets/theme-cyberpunk-mobile-settings.png" alt="Cyberpunk theme settings screenshot" width="220"><br>
+      <sub>テーマ設定</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/mobile-desktop-like-controls.png" alt="Mobile desktop-like controls screenshot" width="220"><br>
+      <sub>composer 操作</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/assets/mobile-model-menu.png" alt="Mobile model menu screenshot" width="220"><br>
+      <sub>モデル menu</sub>
+    </td>
+  </tr>
+</table>
 
 追加スクリーンショットは `docs/assets/` と bridge UI の artifact panel から確認できます。
 
@@ -153,7 +195,10 @@ Model and intelligence menu on mobile:
 
 - Codex app-server は `127.0.0.1` に保ちます。
 - 認証なしの Codex app-server を LAN や public interface に直接 bind しないでください。
+- 表示された `?token=...` 付き URL は local access key として扱い、公開 issue、共有チャット、スクリーンショット、配信には載せないでください。
+- bridge は `Ctrl+C` で停止します。terminal を閉じた場合や PC を再起動した後は、もう一度 `npm run phone` を実行します。
 - trusted LAN 外から使う場合は SSH forwarding、VPN、mesh network を優先してください。
+- 認証なしの public tunnel や raw port forwarding で bridge を公開しないでください。
 - shared network で demo した後は `.phone-token` を削除するか `PHONE_TOKEN` を変更してください。
 
 公開安全 checklist は [SECURITY.md](SECURITY.md) にあります。
