@@ -153,7 +153,10 @@ More screenshots are available in `docs/assets/` and through the artifact panel 
 
 - Keep the Codex app-server on `127.0.0.1`.
 - Do not bind an unauthenticated Codex app-server to a LAN or public interface.
+- Treat the printed `?token=...` URL like a local access key. Do not post it in public issues, chats, screenshots, or streams.
+- Stop the bridge with `Ctrl+C`. If you close the terminal or restart the PC, run `npm run phone` again.
 - Use SSH forwarding, a VPN, or a mesh network for access outside a trusted LAN.
+- Do not expose the bridge through an unauthenticated public tunnel or raw port forward.
 - Delete `.phone-token` or set a new `PHONE_TOKEN` after demos on shared networks.
 
 See [SECURITY.md](SECURITY.md) for the public-safe checklist.

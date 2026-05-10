@@ -23,3 +23,12 @@
 ## Token Handling
 
 `PHONE_TOKEN` が未指定の場合、bridge は mode `0600` の `.phone-token` を作ります。token を rotate するときは `.phone-token` を削除します。
+
+## 初心者向けの運用メモ
+
+- 表示された `?token=...` 付き URL は local access key として扱います。開ける人は、その実行中の bridge を操作できます。
+- token 付き URL を公開 issue、共有チャット、スクリーンショット、配信に貼らないでください。
+- bridge は `npm run phone` を実行している terminal で `Ctrl+C` を押すと停止します。
+- terminal を閉じた場合や PC を再起動した場合、bridge は止まります。使うときはもう一度 `npm run phone` を実行します。
+- bridge は root/admin shell ではなく、通常のユーザー権限で実行します。
+- 認証なしの public tunnel や raw port forwarding で bridge を公開しないでください。SSH forwarding、VPN、device authentication 付き mesh network などの trusted access を前に置いてください。
