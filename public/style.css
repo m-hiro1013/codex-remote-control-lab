@@ -961,7 +961,7 @@ textarea::placeholder {
   }
 
   .log {
-    padding: 22px 14px 18px;
+    padding: 22px 14px 28px;
   }
 
   .entry {
@@ -978,6 +978,44 @@ textarea::placeholder {
   .entry-body {
     font-size: 14px;
     line-height: 1.58;
+  }
+
+  .image-gallery {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .image-preview {
+    border-radius: 9px;
+  }
+
+  .image-preview img {
+    max-height: 180px;
+  }
+
+  .markdown-image {
+    max-width: 100%;
+  }
+
+  .project-heading {
+    min-height: 36px;
+    font-size: 14px;
+  }
+
+  .project-group {
+    margin: 10px 0 16px;
+  }
+
+  .thread-item {
+    min-height: 36px;
+    padding-left: 38px;
+    font-size: 13px;
+  }
+
+  .project-empty,
+  .project-more {
+    padding-left: 38px;
+    font-size: 13px;
   }
 
   .composer {
@@ -1018,7 +1056,7 @@ textarea::placeholder {
   }
 
   .log {
-    padding: 20px 14px 14px;
+    padding: 20px 14px 20px;
   }
 
   .entry {
@@ -1028,6 +1066,10 @@ textarea::placeholder {
   textarea {
     min-height: 72px;
     padding: 18px 18px 6px;
+  }
+
+  .image-preview img {
+    max-height: 168px;
   }
 }
 
@@ -1068,5 +1110,15 @@ textarea::placeholder {
     max-width: 58px;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .thread-time {
+    max-width: 42px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .image-preview img {
+    max-height: 148px;
   }
 }

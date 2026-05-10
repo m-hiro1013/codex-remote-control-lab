@@ -106,6 +106,14 @@ Compact chat typography with image-link preview:
 
 ![Compact chat font with image preview screenshot](docs/assets/chat-font-image-preview.png)
 
+Mobile responsive chat check:
+
+![Mobile responsive chat screenshot](docs/assets/mobile-responsive-chat.png)
+
+Mobile responsive drawer check:
+
+![Mobile responsive drawer screenshot](docs/assets/mobile-responsive-drawer.png)
+
 More screenshots are available in `docs/assets/` and through the artifact panel in the bridge UI.
 
 ## 🔐 Safety Notes
