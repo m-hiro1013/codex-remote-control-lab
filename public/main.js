@@ -2,8 +2,18 @@ const log = document.querySelector("#log");
 const meta = document.querySelector("#meta");
 const connectButton = document.querySelector("#connect");
 const newThreadButton = document.querySelector("#newThread");
+const searchButton = document.querySelector("#searchButton");
+const pluginsButton = document.querySelector("#pluginsButton");
+const automationsButton = document.querySelector("#automationsButton");
+const settingsButton = document.querySelector("#settingsButton");
+const menuButton = document.querySelector("#menuButton");
+const addButton = document.querySelector("#addButton");
+const accessButton = document.querySelector("#accessButton");
+const thinkingButton = document.querySelector("#thinkingButton");
 const mobileThreadsButton = document.querySelector("#mobileThreads");
 const sidebarScrim = document.querySelector("#sidebarScrim");
+const artifactPanel = document.querySelector(".artifact-panel");
+const artifactButtons = document.querySelectorAll("[data-artifact]");
 const threadList = document.querySelector("#threadList");
 const threadTitle = document.querySelector("#threadTitle");
 const composer = document.querySelector("#composer");
@@ -23,6 +33,7 @@ let ws = null;
 let pendingApproval = null;
 let assistantEntry = null;
 let threadCache = [];
+let accessMode = "フルアクセス";
 
 function titleForThread(thread) {
   const raw = thread.name || thread.preview || thread.cwd || thread.id;
@@ -50,6 +61,10 @@ function addEntry(kind, text) {
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
   return body;
+}
+
+function addStatus(text) {
+  addEntry("status", text);
 }
 
 function setReady(ready) {
@@ -107,6 +122,11 @@ function selectThread(threadId) {
   renderThreadList();
   document.body.classList.remove("show-sidebar");
   connect();
+}
+
+function showToolStatus(name) {
+  addStatus(`${name} パネルを選択しました。ブラウザ版ではこの操作を会話ログに記録します。`);
+  document.body.classList.remove("show-sidebar");
 }
 
 function connect() {
@@ -199,9 +219,33 @@ declineButton.addEventListener("click", () => {
 });
 
 newThreadButton.addEventListener("click", () => selectThread(""));
+searchButton.addEventListener("click", () => {
+  addStatus("検索を選択しました。最近のチャット一覧から目的のthreadを選べます。");
+  promptInput.focus();
+});
+pluginsButton.addEventListener("click", () => showToolStatus("プラグイン"));
+automationsButton.addEventListener("click", () => showToolStatus("オートメーション"));
+settingsButton.addEventListener("click", () => showToolStatus("設定"));
 mobileThreadsButton.addEventListener("click", () => document.body.classList.toggle("show-sidebar"));
 sidebarScrim.addEventListener("click", () => document.body.classList.remove("show-sidebar"));
 connectButton.addEventListener("click", connect);
+menuButton.addEventListener("click", () => {
+  document.body.classList.toggle("hide-artifacts");
+  addStatus(document.body.classList.contains("hide-artifacts") ? "右パネルを閉じました。" : "右パネルを開きました。");
+});
+addButton.addEventListener("click", () => addStatus("添付ボタンを押しました。ローカルファイル添付UIは次の実装対象です。"));
+accessButton.addEventListener("click", () => {
+  accessMode = accessMode === "フルアクセス" ? "確認モード" : "フルアクセス";
+  accessButton.textContent = `${accessMode}⌄`;
+  addStatus(`権限表示を ${accessMode} に切り替えました。`);
+});
+thinkingButton.addEventListener("click", () => addStatus("推論/処理状態ボタンを押しました。現在のthread状態を会話ログに記録しました。"));
+for (const button of artifactButtons) {
+  button.addEventListener("click", () => {
+    for (const candidate of artifactButtons) candidate.classList.toggle("active", candidate === button);
+    addStatus(`${button.dataset.artifact} をアーティファクトとして選択しました。`);
+  });
+}
 
 setReady(false);
 loadThreads().finally(connect);

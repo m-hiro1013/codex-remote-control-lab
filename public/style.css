@@ -192,6 +192,14 @@ p {
   overflow: hidden;
 }
 
+body.hide-artifacts .content-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.hide-artifacts .artifact-panel {
+  display: none;
+}
+
 .conversation {
   position: relative;
   display: flex;
@@ -433,6 +441,11 @@ textarea::placeholder {
 
 .artifact-row:hover {
   background: var(--soft);
+}
+
+.artifact-row.active {
+  background: #ededeb;
+  font-weight: 600;
 }
 
 .terminal-row,

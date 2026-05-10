@@ -12,15 +12,15 @@
       <aside class="sidebar" aria-label="スレッド">
         <nav class="primary-nav">
           <button type="button" class="nav-command" id="newThread">新しいチャット</button>
-          <button type="button" class="nav-command muted">検索</button>
-          <button type="button" class="nav-command muted">プラグイン</button>
-          <button type="button" class="nav-command muted">オートメーション</button>
+          <button type="button" class="nav-command muted" id="searchButton">検索</button>
+          <button type="button" class="nav-command muted" id="pluginsButton">プラグイン</button>
+          <button type="button" class="nav-command muted" id="automationsButton">オートメーション</button>
         </nav>
         <div class="thread-section">
           <div class="section-title">最近のチャット</div>
           <div id="threadList" class="thread-list"></div>
         </div>
-        <button type="button" class="settings">設定</button>
+        <button type="button" class="settings" id="settingsButton">設定</button>
       </aside>
 
       <section class="workspace">
@@ -32,7 +32,7 @@
           </div>
           <div class="title-actions">
             <button id="connect" type="button" class="icon-button" title="再接続">↻</button>
-            <button type="button" class="icon-button" title="メニュー">…</button>
+            <button type="button" class="icon-button" id="menuButton" title="メニュー">…</button>
           </div>
         </header>
 
@@ -54,12 +54,12 @@
               <textarea id="prompt" rows="3" placeholder="フォローアップの変更を求める"></textarea>
               <div class="composer-footer">
                 <div class="composer-left">
-                  <button type="button" class="ghost-button">＋</button>
-                  <button type="button" class="access-button">フルアクセス⌄</button>
+                  <button type="button" class="ghost-button" id="addButton">＋</button>
+                  <button type="button" class="access-button" id="accessButton">フルアクセス⌄</button>
                 </div>
                 <div class="composer-right">
                   <span id="modelLabel">5.5 中⌄</span>
-                  <button type="button" class="ghost-button">◌</button>
+                  <button type="button" class="ghost-button" id="thinkingButton">◌</button>
                   <button id="send" type="submit" class="send-button" title="送信">↑</button>
                 </div>
               </div>
@@ -72,8 +72,8 @@
                 <span>アーティファクト</span>
                 <span>◆</span>
               </div>
-              <button type="button" class="artifact-row">README.md</button>
-              <button type="button" class="artifact-row">AGENTS.md</button>
+              <button type="button" class="artifact-row" data-artifact="README.md">README.md</button>
+              <button type="button" class="artifact-row" data-artifact="AGENTS.md">AGENTS.md</button>
             </section>
             <section class="panel-card">
               <div class="panel-title">

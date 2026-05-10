@@ -128,6 +128,14 @@ Responsive checkpoints:
 
 ![Responsive mobile drawer screenshot](docs/assets/responsive-mobile-drawer.png)
 
+Button behavior checks:
+
+![Desktop button behavior screenshot](docs/assets/button-behavior-desktop.png)
+
+![Send button response screenshot](docs/assets/button-send-response.png)
+
+![Mobile drawer close screenshot](docs/assets/button-mobile-drawer-close.png)
+
 ## Observed WebSocket Behavior
 
 The health probes returned:
