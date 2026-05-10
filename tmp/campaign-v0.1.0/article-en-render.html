@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Codex Remote Control Lab v0.1.0: phone control for a localhost-first Codex app-server</title>
+<style>
+  body { margin: 40px; color: #111; background: #fff; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; line-height: 1.9; }
+  article { max-width: 720px; }
+  h2 { font-size: 1.55rem; margin: 2.4em 0 0.8em; font-weight: 700; }
+  h3 { font-size: 1.25rem; margin: 2em 0 0.6em; font-weight: 700; }
+  p { margin: 1.1em 0; }
+  pre { margin: 1.2em 0; padding: 1em; background: #f6f8fa; border-radius: 6px; overflow-x: auto; line-height: 1.55; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.95em; }
+  blockquote { margin: 1.2em 0; padding-left: 1em; border-left: 4px solid #ddd; color: #444; }
+  ul, ol { margin: 1em 0 1em 1.4em; }
+</style>
+</head>
+<body>
+<article>
+<p>Codex Remote Control Lab v0.1.0 is the first public release of a local-first experiment for OpenAI Codex CLI <code>remote-control</code> and <code>app-server</code> workflows.</p>
+<p>The idea is simple: keep the Codex app-server bound to <code>127.0.0.1</code>, then expose only a small token-protected browser bridge to devices on the same trusted LAN. That gives you a phone-friendly control surface without treating the Codex app-server itself as a LAN service.</p>
+<h2>What shipped</h2>
+<p>The release packages a working bridge, browser UI, public documentation, screenshot evidence, and release validation into one repository.</p>
+<p>Highlights:</p>
+<ul>
+<li>a repository-local Codex CLI <code>0.130.0</code> app-server launcher</li>
+<li>a token-protected phone bridge for same-LAN browser clients</li>
+<li>one shared bridge-managed thread across phone and desktop browsers</li>
+<li>recent thread resume</li>
+<li>artifact preview</li>
+<li>approval and sandbox mode controls for the next turn</li>
+<li>model selection</li>
+<li>image attachments sent to Codex as <code>localImage</code> inputs</li>
+<li>Markdown rendering in chat and artifact previews</li>
+<li>grouped project/thread navigation</li>
+<li>collapsed status and tool logs</li>
+<li>simple, cyberpunk, and botanical color themes</li>
+<li>bilingual docs through VitePress and GitHub Pages</li>
+</ul>
+<h2>Localhost-first by design</h2>
+<p>The important boundary is intentional:</p>
+<pre><code>phone browser -&gt; http://Mac-LAN-IP:45214 -&gt; Node bridge -&gt; ws://127.0.0.1:45213 -&gt; Codex app-server</code></pre>
+<p>The Codex app-server remains on localhost. The LAN-facing surface is the Node bridge, and that bridge requires a token on page, API, upload, artifact, and WebSocket paths.</p>
+<p>The repository also keeps local-only state out of Git:</p>
+<ul>
+<li><code>.phone-token</code></li>
+<li><code>.uploads/</code></li>
+<li><code>.codex-home*/</code></li>
+<li>logs</li>
+<li>generated docs output</li>
+<li>session databases</li>
+</ul>
+<h2>Browser UI</h2>
+<p>The browser UI is modeled after a compact Codex Desktop-style workspace: thread navigation on the left, conversation in the center, artifacts on the right, and a bottom composer for the next turn.</p>
+<p>For v0.1.0, the UI includes screenshots for desktop, mobile, tablet, Markdown previews, image previews, grouped sidebars, status logs, and the new theme selector. The theme selector stores the selected theme in browser local storage, so the UI can stay readable for different environments.</p>
+<h2>Validation</h2>
+<p>The release was checked with:</p>
+<pre><code>npm run check
+npm audit --omit=dev
+npm run docs:build
+xmllint --noout docs/public/logo.svg docs/public/social-card.svg</code></pre>
+<p>I also smoke-tested the running bridge with a test token and confirmed the settings panel showed the three themes. Switching to Cyberpunk set <code>html[data-theme=&quot;cyberpunk&quot;]</code>.</p>
+<p>GitHub Actions CI and the docs deployment completed successfully for the release commit, and the live documentation returned HTTP 200.</p>
+<h2>Links</h2>
+<ul>
+<li>GitHub repository: https://github.com/Sunwood-ai-labs/codex-remote-control-lab</li>
+<li>v0.1.0 release: https://github.com/Sunwood-ai-labs/codex-remote-control-lab/releases/tag/v0.1.0</li>
+<li>Documentation: https://sunwood-ai-labs.github.io/codex-remote-control-lab/</li>
+<li>Phone bridge guide: https://sunwood-ai-labs.github.io/codex-remote-control-lab/guide/phone-bridge</li>
+<li>Japanese documentation: https://sunwood-ai-labs.github.io/codex-remote-control-lab/ja/</li>
+</ul>
+</article>
+</body>
+</html>

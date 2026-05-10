@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Codex Remote Control Lab v0.1.0 を公開しました: Codex app-server を localhost に置いたままスマホから操作する実験場</title>
+<style>
+  body { margin: 40px; color: #111; background: #fff; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; line-height: 1.9; }
+  article { max-width: 720px; }
+  h2 { font-size: 1.55rem; margin: 2.4em 0 0.8em; font-weight: 700; }
+  h3 { font-size: 1.25rem; margin: 2em 0 0.6em; font-weight: 700; }
+  p { margin: 1.1em 0; }
+  pre { margin: 1.2em 0; padding: 1em; background: #f6f8fa; border-radius: 6px; overflow-x: auto; line-height: 1.55; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.95em; }
+  blockquote { margin: 1.2em 0; padding-left: 1em; border-left: 4px solid #ddd; color: #444; }
+  ul, ol { margin: 1em 0 1em 1.4em; }
+</style>
+</head>
+<body>
+<article>
+<p>Codex Remote Control Lab v0.1.0 を公開しました。OpenAI Codex CLI の <code>remote-control</code> / <code>app-server</code> を、ローカル優先で安全に試すための実験リポジトリです。</p>
+<p>狙いはシンプルです。Codex app-server は <code>127.0.0.1</code> に閉じたままにして、同じ trusted LAN 上のスマホや別ブラウザには token 付きの小さな browser bridge だけを見せます。Codex app-server 自体を LAN サービスとして扱わず、操作面だけを橋渡しします。</p>
+<h2>v0.1.0 で入っているもの</h2>
+<p>今回の初回リリースでは、bridge 本体、ブラウザ UI、公開ドキュメント、スクリーンショット証跡、検証フローをまとめました。</p>
+<p>主な内容:</p>
+<ul>
+<li>repo-local の Codex CLI <code>0.130.0</code> app-server 起動</li>
+<li>同一 LAN のブラウザ向け token-protected phone bridge</li>
+<li>phone と desktop browser で 1 つの bridge-managed thread を共有</li>
+<li>最近の thread 一覧と resume</li>
+<li>artifact preview</li>
+<li>次 turn 向けの approval / sandbox mode control</li>
+<li>model 選択</li>
+<li>画像添付を Codex <code>localImage</code> input として送信</li>
+<li>chat と artifact preview の Markdown rendering</li>
+<li>project / thread の grouped navigation</li>
+<li>status / tool log の折りたたみ表示</li>
+<li>simple / cyberpunk / botanical のカラーテーマ</li>
+<li>VitePress と GitHub Pages による日英 docs</li>
+</ul>
+<h2>localhost-first の安全境界</h2>
+<p>構成は次のようにしています。</p>
+<pre><code>phone browser -&gt; http://Mac-LAN-IP:45214 -&gt; Node bridge -&gt; ws://127.0.0.1:45213 -&gt; Codex app-server</code></pre>
+<p>Codex app-server は localhost に残します。LAN に出るのは Node bridge だけで、page / API / upload / artifact / WebSocket path には token を要求します。</p>
+<p>また、公開リポジトリに入れてはいけないローカル状態は Git から除外しています。</p>
+<ul>
+<li><code>.phone-token</code></li>
+<li><code>.uploads/</code></li>
+<li><code>.codex-home*/</code></li>
+<li>log</li>
+<li>generated docs output</li>
+<li>session database</li>
+</ul>
+<h2>ブラウザ UI</h2>
+<p>UI は Codex Desktop 風のコンパクトな作業画面に寄せています。左に thread navigation、中央に conversation、右に artifact panel、下に composer という構成です。</p>
+<p>v0.1.0 では、desktop / mobile / tablet、Markdown preview、image preview、grouped sidebar、status log、theme selector のスクリーンショットも docs に入れています。テーマは browser local storage に保存されるので、simple / cyberpunk / botanical を環境に合わせて切り替えられます。</p>
+<h2>検証</h2>
+<p>リリース前に次を確認しました。</p>
+<pre><code>npm run check
+npm audit --omit=dev
+npm run docs:build
+xmllint --noout docs/public/logo.svg docs/public/social-card.svg</code></pre>
+<p>さらに test token で bridge を起動し、設定 panel に 3 つのテーマが表示されること、Cyberpunk に切り替えると <code>html[data-theme=&quot;cyberpunk&quot;]</code> になることを確認しています。</p>
+<p>GitHub Actions の CI と docs deploy も release commit で成功し、公開 docs も HTTP 200 を返すことを確認しました。</p>
+<h2>リンク</h2>
+<ul>
+<li>GitHub repository: https://github.com/Sunwood-ai-labs/codex-remote-control-lab</li>
+<li>v0.1.0 release: https://github.com/Sunwood-ai-labs/codex-remote-control-lab/releases/tag/v0.1.0</li>
+<li>Documentation: https://sunwood-ai-labs.github.io/codex-remote-control-lab/</li>
+<li>Phone bridge guide: https://sunwood-ai-labs.github.io/codex-remote-control-lab/guide/phone-bridge</li>
+<li>日本語ドキュメント: https://sunwood-ai-labs.github.io/codex-remote-control-lab/ja/</li>
+</ul>
+</article>
+</body>
+</html>
