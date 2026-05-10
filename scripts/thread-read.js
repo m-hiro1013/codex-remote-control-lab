@@ -1,0 +1,45 @@
+function liveBridgeSnapshot(bridge, threadId) {
+  if (!bridge) return null;
+  const matchesThread = bridge.threadId === threadId || bridge.requestedThreadId === threadId;
+  if (!matchesThread) return null;
+  return {
+    threadId,
+    ready: !!bridge.ready,
+    history: Array.isArray(bridge.history) ? bridge.history : [],
+    source: "live-bridge",
+  };
+}
+
+async function readThreadSnapshot({ threadId, liveBridge, request, model, workdir, historyFromThread }) {
+  const liveSnapshot = liveBridgeSnapshot(liveBridge, threadId);
+  if (liveSnapshot) return liveSnapshot;
+
+  let thread;
+  try {
+    const result = await request("thread/read", {
+      threadId,
+      includeTurns: true,
+    });
+    thread = result.thread || result;
+  } catch (readError) {
+    const result = await request("thread/resume", {
+      threadId,
+      model,
+      cwd: workdir,
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+    });
+    thread = result.thread || result;
+  }
+
+  return {
+    threadId: thread.id || threadId,
+    history: historyFromThread(thread),
+    source: "app-server",
+  };
+}
+
+module.exports = {
+  liveBridgeSnapshot,
+  readThreadSnapshot,
+};

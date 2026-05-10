@@ -9,6 +9,7 @@ const WebSocket = require("ws");
 const { bridgeKeyForRequest, shouldDisposeIdleBridge, shouldPromoteBridgeKey } = require("./bridge-state");
 const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
 const { bridgeUrls, notifyBridgeUrls } = require("./phone-notify");
+const { readThreadSnapshot } = require("./thread-read");
 
 const root = path.resolve(__dirname, "..");
 
@@ -803,24 +804,15 @@ async function main() {
         return;
       }
       try {
-        let thread;
-        try {
-          const result = await appServerRequest("thread/read", {
-            threadId,
-            includeTurns: true,
-          });
-          thread = result.thread || result;
-        } catch (readError) {
-          const result = await appServerRequest("thread/resume", {
-            threadId,
-            model,
-            cwd: workdir,
-            approvalPolicy: "on-request",
-            sandbox: "workspace-write",
-          });
-          thread = result.thread;
-        }
-        sendJson(res, 200, { threadId: thread.id || threadId, history: historyFromThread(thread) });
+        const snapshot = await readThreadSnapshot({
+          threadId,
+          liveBridge: bridges.get(threadId),
+          request: appServerRequest,
+          model,
+          workdir,
+          historyFromThread,
+        });
+        sendJson(res, 200, snapshot);
       } catch (error) {
         sendJson(res, 500, { error: error.message });
       }
