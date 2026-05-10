@@ -26,6 +26,8 @@ const artifactPreview = document.querySelector("#artifactPreview");
 const terminalList = document.querySelector("#terminalList");
 const statusButton = document.querySelector("#statusButton");
 const webSearchButton = document.querySelector("#webSearchButton");
+const runState = document.querySelector("#runState");
+const runStateLabel = document.querySelector("#runStateLabel");
 const threadList = document.querySelector("#threadList");
 const threadSearch = document.querySelector("#threadSearch");
 const threadTitle = document.querySelector("#threadTitle");
@@ -69,6 +71,24 @@ let accessMode = {
   sandboxMode: "danger-full-access",
 };
 let pendingFiles = [];
+
+const runStateText = {
+  connecting: "接続中",
+  ready: "待機中",
+  running: "Codex 処理中",
+  streaming: "回答生成中",
+  approval: "承認待ち",
+  syncing: "履歴同期中",
+  done: "完了",
+  disconnected: "切断",
+  error: "エラー",
+};
+
+function setRunState(state, label) {
+  if (!runState || !runStateLabel) return;
+  runState.dataset.state = state;
+  runStateLabel.textContent = label || runStateText[state] || state;
+}
 
 function applyTheme(themeId) {
   const nextTheme = themeOptions.some((theme) => theme.id === themeId) ? themeId : "simple";
@@ -1042,6 +1062,7 @@ function connect() {
   }
   if (ws) ws.close();
   liveTurnActive = false;
+  setRunState("connecting");
   lastHistorySignature = "";
   renderHistory([]);
   const selected = threadCache.find((thread) => thread.id === selectedThread);
@@ -1054,6 +1075,7 @@ function connect() {
   meta.textContent = "接続中";
 
   ws.addEventListener("open", () => {
+    setRunState("connecting", "Codex に接続中");
     addEntry("status", "Macの共有ブリッジへ接続しました。");
   });
 
@@ -1064,16 +1086,19 @@ function connect() {
       syncReadyThread(msg.threadId);
       renderHistoryIfChanged(msg.history || []);
       meta.textContent = `${msg.model}  •  ${msg.clients}端末  •  ${msg.workdir}`;
+      setRunState("ready");
       addEntry("status", `共有Codex thread ready: ${msg.threadId}`);
       return;
     }
     if (msg.type === "user") {
       liveTurnActive = true;
       assistantEntry = null;
+      setRunState("running");
       addEntry("user", msg.text, msg.attachments || []);
       return;
     }
     if (msg.type === "assistantDelta") {
+      setRunState("streaming");
       if (!assistantEntry) assistantEntry = addEntry("assistant", "");
       setEntryText(assistantEntry, "assistant", `${assistantEntry.markdownSource || ""}${msg.text}`);
       log.scrollTop = log.scrollHeight;
@@ -1081,6 +1106,7 @@ function connect() {
     }
     if (msg.type === "approval") {
       pendingApproval = msg.request;
+      setRunState("approval");
       approvalText.textContent = JSON.stringify(msg.request.params, null, 2);
       approval.classList.remove("hidden");
       return;
@@ -1089,15 +1115,20 @@ function connect() {
       liveTurnActive = false;
       lastHistorySignature = "";
       assistantEntry = null;
+      setRunState("done", "完了しました");
       loadThreads();
       refreshSelectedThread();
       return;
     }
     if (msg.type === "error") {
+      setRunState("error", msg.text || "エラー");
       addEntry("error", msg.text);
       return;
     }
     if (msg.type === "status") {
+      if (/履歴同期を更新しました/.test(msg.text || "")) setRunState("done", "完了・履歴同期済み");
+      else if (/履歴同期に失敗/.test(msg.text || "")) setRunState("error", "履歴同期に失敗");
+      else if (/履歴同期/.test(msg.text || "")) setRunState("syncing", msg.text);
       addEntry("status", msg.text);
     }
   });
@@ -1106,6 +1137,7 @@ function connect() {
     setReady(false);
     connectButton.disabled = false;
     meta.textContent = "切断";
+    setRunState("disconnected");
   });
 }
 
@@ -1136,6 +1168,7 @@ approveButton.addEventListener("click", () => {
   ws.send(JSON.stringify({ type: "approval", token, decision: "accept", request: pendingApproval }));
   approval.classList.add("hidden");
   pendingApproval = null;
+  setRunState("running", "承認済み・処理中");
 });
 
 declineButton.addEventListener("click", () => {
@@ -1143,6 +1176,7 @@ declineButton.addEventListener("click", () => {
   ws.send(JSON.stringify({ type: "approval", token, decision: "decline", request: pendingApproval }));
   approval.classList.add("hidden");
   pendingApproval = null;
+  setRunState("running", "拒否済み・処理中");
 });
 
 newThreadButton.addEventListener("click", () => selectThread(""));

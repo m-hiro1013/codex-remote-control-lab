@@ -55,6 +55,10 @@
                 <button id="approve" type="button">承認</button>
               </div>
             </section>
+            <div id="runState" class="run-state" data-state="connecting" role="status" aria-live="polite">
+              <span class="run-state-dot" aria-hidden="true"></span>
+              <span id="runStateLabel">接続準備中</span>
+            </div>
             <form id="composer" class="composer">
               <input id="fileInput" class="hidden" type="file" accept="image/*" multiple />
               <div id="attachments" class="attachments" aria-live="polite"></div>
