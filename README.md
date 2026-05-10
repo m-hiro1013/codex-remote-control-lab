@@ -17,11 +17,15 @@
 
 # Codex Remote Control Lab
 
-Codex Remote Control Lab is a local-first experiment for OpenAI Codex CLI `remote-control` and `app-server` workflows. It keeps the Codex app-server on `127.0.0.1`, then exposes only a small token-protected browser bridge to devices on the same LAN.
+Codex Remote Control Lab turns your phone into a remote control for the Codex session running on your desktop. Start the bridge on the Mac, open the tokenized URL from a phone, and continue the same Codex thread from either device.
+
+It is a local-first experiment for OpenAI Codex CLI `remote-control` and `app-server` workflows. It keeps the Codex app-server on `127.0.0.1`, then exposes only a small token-protected browser bridge to devices on the same LAN.
 
 ## ✨ What It Does
 
 - starts a repository-local Codex CLI `0.130.0` app-server
+- lets a phone browser operate the desktop Codex app-server without exposing that app-server directly to the LAN
+- syncs one active Codex thread between desktop and phone, so you can start on the PC, step away, and keep working from mobile
 - serves a phone-friendly browser UI with thread resume, artifact preview, approvals, model selection, image attachments, and selectable color themes
 - shares one bridge-managed Codex thread across a phone and desktop browser
 - keeps `.phone-token`, `.uploads/`, `.codex-home*/`, logs, and session databases out of Git
@@ -70,6 +74,8 @@ npm run probe:ws
 The local smoke test verified `initialize` and `thread/start` through the WebSocket app-server, plus `/readyz` and `/healthz` behavior.
 
 ## 📱 Phone Bridge
+
+The main value of the bridge is continuity: the desktop keeps running Codex locally, while the phone becomes a LAN remote for that same session. The bridge-managed thread can be opened from both the PC browser and the phone browser, making the workflow feel synced instead of split across devices.
 
 Useful environment variables:
 

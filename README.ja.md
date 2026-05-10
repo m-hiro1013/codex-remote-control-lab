@@ -17,11 +17,15 @@
 
 # Codex Remote Control Lab
 
-Codex Remote Control Lab は、OpenAI Codex CLI の `remote-control` / `app-server` をローカル優先で試すための実験 repo です。Codex app-server は `127.0.0.1` に閉じ、同じ LAN 上の端末へは token 付きの小さな browser bridge だけを公開します。
+Codex Remote Control Lab は、デスクトップで動いている Codex セッションをスマホから操作できるようにする実験 repo です。Mac で bridge を起動し、スマホで token 付き URL を開けば、同じ Codex thread を PC とスマホのどちらからでも継続できます。
+
+OpenAI Codex CLI の `remote-control` / `app-server` をローカル優先で扱います。Codex app-server は `127.0.0.1` に閉じ、同じ LAN 上の端末へは token 付きの小さな browser bridge だけを公開します。
 
 ## ✨ できること
 
 - repo-local の Codex CLI `0.130.0` app-server を起動
+- スマホの browser からデスクトップ側の Codex app-server を操作
+- PC とスマホで 1 つの Codex thread を同期し、PC で始めた作業をスマホからそのまま続行
 - スマホ向け browser UI で thread resume、artifact preview、承認、model 選択、画像添付、カラーテーマ切替を扱う
 - phone と desktop browser で 1 つの bridge-managed Codex thread を共有
 - `.phone-token`、`.uploads/`、`.codex-home*/`、log、session database を Git に入れない
@@ -70,6 +74,8 @@ npm run probe:ws
 local smoke test では、WebSocket app-server 経由の `initialize` / `thread/start` と、`/readyz` / `/healthz` の挙動を確認しています。
 
 ## 📱 Phone Bridge
+
+この bridge の一番大きな価値は、デスクトップ上の Codex をスマホから操作できることです。Codex 本体は Mac の localhost に置いたまま、スマホは LAN 経由のリモコンとして動きます。同じ bridge-managed thread を PC browser と phone browser の両方で開けるため、作業セッションが端末ごとに分断されず、PC とスマホで同期した感覚で続けられます。
 
 便利な環境変数:
 
