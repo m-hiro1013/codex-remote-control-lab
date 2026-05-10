@@ -42,6 +42,7 @@ if (token) localStorage.setItem("codexPhoneToken", token);
 let ws = null;
 let pendingApproval = null;
 let assistantEntry = null;
+let statusGroup = null;
 let threadCache = [];
 let selectedModel = "";
 let accessMode = {
@@ -187,7 +188,71 @@ function setEntryText(body, kind, text) {
   else body.textContent = body.markdownSource;
 }
 
+function summarizeStatus(items) {
+  const reads = items.filter((item) => /^Read\s+/i.test(item)).length;
+  const commands = items.filter((item) => /command|コマンド|\$\s/.test(item)).length;
+  const files = items.filter((item) => /file|ファイル/i.test(item)).length;
+  const parts = [];
+  if (reads) parts.push(`${reads}個のファイルを調査`);
+  if (commands) parts.push(`${commands}件のコマンドを実行`);
+  if (files && !reads) parts.push(`${files}件のファイル操作`);
+  return parts.length ? parts.join("、") : `${items.length}件の作業ログ`;
+}
+
+function updateStatusGroup(group) {
+  const count = group.items.length;
+  group.summaryText.textContent = summarizeStatus(group.items);
+  group.count.textContent = `${count}件`;
+  group.list.replaceChildren(
+    ...group.items.map((item) => {
+      const row = document.createElement("li");
+      row.textContent = item;
+      return row;
+    }),
+  );
+}
+
+function addStatusGroupItem(text) {
+  if (!statusGroup || statusGroup.items.length >= 12) {
+    const el = document.createElement("article");
+    el.className = "entry status status-group";
+
+    const avatar = document.createElement("div");
+    avatar.className = "entry-avatar";
+    avatar.textContent = "›";
+
+    const details = document.createElement("details");
+    details.className = "status-details";
+
+    const summary = document.createElement("summary");
+    const summaryText = document.createElement("span");
+    summaryText.className = "status-summary-text";
+    const count = document.createElement("span");
+    count.className = "status-count";
+    summary.append(summaryText, count);
+
+    const list = document.createElement("ul");
+    list.className = "status-list";
+    details.append(summary, list);
+
+    const tools = document.createElement("div");
+    tools.className = "entry-tools";
+
+    el.append(avatar, details, tools);
+    log.appendChild(el);
+    statusGroup = { items: [], summaryText, count, list };
+  }
+  statusGroup.items.push(text);
+  updateStatusGroup(statusGroup);
+  log.scrollTop = log.scrollHeight;
+}
+
 function addEntry(kind, text) {
+  if (kind === "status") {
+    addStatusGroupItem(text);
+    return null;
+  }
+  statusGroup = null;
   const el = document.createElement("article");
   el.className = `entry ${kind}`;
 
@@ -210,7 +275,7 @@ function addEntry(kind, text) {
 }
 
 function addStatus(text) {
-  addEntry("status", text);
+  addStatusGroupItem(text);
 }
 
 function setReady(ready) {
@@ -220,6 +285,7 @@ function setReady(ready) {
 
 function renderHistory(history) {
   log.replaceChildren();
+  statusGroup = null;
   for (const entry of history || []) addEntry(entry.type, entry.text);
 }
 
