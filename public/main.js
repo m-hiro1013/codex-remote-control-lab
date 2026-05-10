@@ -10,11 +10,21 @@ const menuButton = document.querySelector("#menuButton");
 const addButton = document.querySelector("#addButton");
 const accessButton = document.querySelector("#accessButton");
 const thinkingButton = document.querySelector("#thinkingButton");
+const modelButton = document.querySelector("#modelButton");
+const fileInput = document.querySelector("#fileInput");
+const attachments = document.querySelector("#attachments");
 const mobileThreadsButton = document.querySelector("#mobileThreads");
 const sidebarScrim = document.querySelector("#sidebarScrim");
 const artifactPanel = document.querySelector(".artifact-panel");
 const artifactButtons = document.querySelectorAll("[data-artifact]");
+const artifactTitle = document.querySelector("#artifactTitle");
+const artifactList = document.querySelector("#artifactList");
+const artifactPreview = document.querySelector("#artifactPreview");
+const terminalList = document.querySelector("#terminalList");
+const statusButton = document.querySelector("#statusButton");
+const webSearchButton = document.querySelector("#webSearchButton");
 const threadList = document.querySelector("#threadList");
+const threadSearch = document.querySelector("#threadSearch");
 const threadTitle = document.querySelector("#threadTitle");
 const composer = document.querySelector("#composer");
 const promptInput = document.querySelector("#prompt");
@@ -33,7 +43,19 @@ let ws = null;
 let pendingApproval = null;
 let assistantEntry = null;
 let threadCache = [];
-let accessMode = "フルアクセス";
+let selectedModel = "";
+let accessMode = {
+  label: "フルアクセス",
+  approvalPolicy: "never",
+  sandboxMode: "danger-full-access",
+};
+let pendingFiles = [];
+
+const accessModes = [
+  { label: "フルアクセス", approvalPolicy: "never", sandboxMode: "danger-full-access" },
+  { label: "確認モード", approvalPolicy: "on-request", sandboxMode: "workspace-write" },
+  { label: "読み取り専用", approvalPolicy: "on-request", sandboxMode: "read-only" },
+];
 
 function titleForThread(thread) {
   const raw = thread.name || thread.preview || thread.cwd || thread.id;
@@ -79,6 +101,7 @@ function renderHistory(history) {
 
 function renderThreadList() {
   threadList.replaceChildren();
+  const query = threadSearch.value.trim().toLowerCase();
   const fresh = document.createElement("button");
   fresh.type = "button";
   fresh.className = selectedThread ? "thread-item" : "thread-item active";
@@ -86,7 +109,7 @@ function renderThreadList() {
   fresh.addEventListener("click", () => selectThread(""));
   threadList.appendChild(fresh);
 
-  for (const thread of threadCache) {
+  for (const thread of threadCache.filter((thread) => titleForThread(thread).toLowerCase().includes(query))) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = thread.id === selectedThread ? "thread-item active" : "thread-item";
@@ -97,11 +120,22 @@ function renderThreadList() {
   }
 }
 
+function authQuery() {
+  return `token=${encodeURIComponent(token)}`;
+}
+
+async function apiGet(path) {
+  const separator = path.includes("?") ? "&" : "?";
+  const response = await fetch(`${path}${separator}${authQuery()}`, { cache: "no-store" });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || `${response.status} ${response.statusText}`);
+  return result;
+}
+
 async function loadThreads() {
   if (!token) return;
   try {
-    const response = await fetch(`/api/threads?token=${encodeURIComponent(token)}`, { cache: "no-store" });
-    const result = await response.json();
+    const result = await apiGet("/api/threads");
     threadCache = result.data || [];
     renderThreadList();
   } catch (error) {
@@ -124,9 +158,166 @@ function selectThread(threadId) {
   connect();
 }
 
-function showToolStatus(name) {
-  addStatus(`${name} パネルを選択しました。ブラウザ版ではこの操作を会話ログに記録します。`);
+function showRightPanel() {
+  document.body.classList.remove("hide-artifacts");
+}
+
+function clearPanel(title) {
+  showRightPanel();
+  artifactTitle.textContent = title;
+  artifactList.replaceChildren();
+  artifactPreview.classList.add("hidden");
+  artifactPreview.textContent = "";
+}
+
+function addPanelRow(text, detail, onClick) {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "artifact-row";
+  row.innerHTML = detail ? `<strong>${escapeHtml(text)}</strong><small>${escapeHtml(detail)}</small>` : escapeHtml(text);
+  if (onClick) row.addEventListener("click", onClick);
+  artifactList.appendChild(row);
+  return row;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => {
+    const entities = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+    return entities[char];
+  });
+}
+
+function showToolError(name, error) {
+  clearPanel(name);
+  addPanelRow("読み込みに失敗しました", error.message);
+  addEntry("error", `${name}: ${error.message}`);
   document.body.classList.remove("show-sidebar");
+}
+
+async function showPlugins() {
+  clearPanel("プラグイン");
+  addPanelRow("読み込み中...");
+  try {
+    const result = await apiGet("/api/plugins");
+    const marketplaces = result.marketplaces || result.data || [];
+    artifactList.replaceChildren();
+    for (const marketplace of marketplaces) {
+      const plugins = marketplace.plugins || marketplace.entries || [];
+      if (!plugins.length) addPanelRow(marketplace.name || marketplace.id || "marketplace", "プラグインなし");
+      for (const plugin of plugins) {
+        const summary = plugin.summary || plugin;
+        addPanelRow(summary.name || summary.id, summary.enabled ? "enabled" : summary.installed ? "installed" : "available");
+      }
+    }
+    if (!artifactList.children.length) addPanelRow("プラグインは見つかりませんでした");
+  } catch (error) {
+    showToolError("プラグイン", error);
+  }
+}
+
+async function showAutomations() {
+  clearPanel("オートメーション");
+  addPanelRow("読み込み中...");
+  try {
+    const result = await apiGet("/api/automations");
+    artifactList.replaceChildren();
+    for (const automation of result.data || []) addPanelRow(automation.name, automation.status);
+    if (!artifactList.children.length) addPanelRow("登録済みオートメーションはありません");
+  } catch (error) {
+    showToolError("オートメーション", error);
+  }
+}
+
+async function showSettings() {
+  clearPanel("設定");
+  addPanelRow("読み込み中...");
+  try {
+    const result = await apiGet("/api/config");
+    artifactList.replaceChildren();
+    const config = result.config?.config || {};
+    addPanelRow("認証", result.auth?.authMethod || "unknown");
+    addPanelRow("既定モデル", config.model || selectedModel || "unknown");
+    addPanelRow("承認", accessMode.approvalPolicy);
+    addPanelRow("サンドボックス", accessMode.sandboxMode);
+    addPanelRow("作業ディレクトリ", config.cwd || "");
+    if (result.errors?.length) addPanelRow("補足エラー", result.errors.join(" / "));
+  } catch (error) {
+    showToolError("設定", error);
+  }
+}
+
+async function showModels() {
+  clearPanel("モデル");
+  addPanelRow("読み込み中...");
+  try {
+    const result = await apiGet("/api/models");
+    artifactList.replaceChildren();
+    const models = result.data || [];
+    for (const candidate of models.slice(0, 24)) {
+      addPanelRow(candidate.displayName || candidate.model || candidate.id, candidate.defaultReasoningEffort || "", () => {
+        selectedModel = candidate.model || candidate.id;
+        modelButton.textContent = `${candidate.displayName || selectedModel}⌄`;
+        addStatus(`モデルを ${selectedModel} に設定しました。次の送信から反映します。`);
+      });
+    }
+    if (!models.length) addPanelRow("モデル一覧を取得できませんでした");
+  } catch (error) {
+    showToolError("モデル", error);
+  }
+}
+
+async function showStatus() {
+  clearPanel("バックグラウンド");
+  try {
+    const result = await apiGet("/api/status");
+    addPanelRow("UI port", String(result.uiPort));
+    addPanelRow("Codex app-server", result.codexUrl);
+    addPanelRow("作業ディレクトリ", result.workdir);
+    for (const bridge of result.bridges || []) {
+      addPanelRow(bridge.threadId || "thread準備中", `${bridge.clients}端末 / ${bridge.ready ? "ready" : "starting"}`);
+    }
+  } catch (error) {
+    showToolError("バックグラウンド", error);
+  }
+}
+
+async function showArtifact(path) {
+  clearPanel("アーティファクト");
+  addPanelRow(path, "読み込み中");
+  try {
+    const result = await apiGet(`/api/file?path=${encodeURIComponent(path)}`);
+    artifactList.replaceChildren();
+    addPanelRow(result.path, "ローカルファイル");
+    artifactPreview.textContent = result.text;
+    artifactPreview.classList.remove("hidden");
+  } catch (error) {
+    showToolError("アーティファクト", error);
+  }
+}
+
+function renderAttachments() {
+  attachments.replaceChildren();
+  attachments.classList.toggle("has-attachments", pendingFiles.length > 0);
+  for (const file of pendingFiles) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "attachment-chip";
+    chip.textContent = `${file.name} ×`;
+    chip.addEventListener("click", () => {
+      pendingFiles = pendingFiles.filter((candidate) => candidate !== file);
+      renderAttachments();
+    });
+    attachments.appendChild(chip);
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ name: file.name, type: file.type, dataUrl: reader.result });
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 function connect() {
@@ -199,9 +390,23 @@ function connect() {
 composer.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = promptInput.value.trim();
-  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type: "prompt", token, text }));
+  if ((!text && !pendingFiles.length) || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(
+    JSON.stringify({
+      type: "prompt",
+      token,
+      text: text || "添付画像を確認してください。",
+      attachments: pendingFiles,
+      options: {
+        model: selectedModel || undefined,
+        approvalPolicy: accessMode.approvalPolicy,
+        sandboxMode: accessMode.sandboxMode,
+      },
+    }),
+  );
   promptInput.value = "";
+  pendingFiles = [];
+  renderAttachments();
 });
 
 approveButton.addEventListener("click", () => {
@@ -220,12 +425,15 @@ declineButton.addEventListener("click", () => {
 
 newThreadButton.addEventListener("click", () => selectThread(""));
 searchButton.addEventListener("click", () => {
-  addStatus("検索を選択しました。最近のチャット一覧から目的のthreadを選べます。");
-  promptInput.focus();
+  threadSearch.classList.toggle("hidden");
+  threadSearch.focus();
+  renderThreadList();
+  document.body.classList.add("show-sidebar");
 });
-pluginsButton.addEventListener("click", () => showToolStatus("プラグイン"));
-automationsButton.addEventListener("click", () => showToolStatus("オートメーション"));
-settingsButton.addEventListener("click", () => showToolStatus("設定"));
+threadSearch.addEventListener("input", renderThreadList);
+pluginsButton.addEventListener("click", showPlugins);
+automationsButton.addEventListener("click", showAutomations);
+settingsButton.addEventListener("click", showSettings);
 mobileThreadsButton.addEventListener("click", () => document.body.classList.toggle("show-sidebar"));
 sidebarScrim.addEventListener("click", () => document.body.classList.remove("show-sidebar"));
 connectButton.addEventListener("click", connect);
@@ -233,17 +441,36 @@ menuButton.addEventListener("click", () => {
   document.body.classList.toggle("hide-artifacts");
   addStatus(document.body.classList.contains("hide-artifacts") ? "右パネルを閉じました。" : "右パネルを開きました。");
 });
-addButton.addEventListener("click", () => addStatus("添付ボタンを押しました。ローカルファイル添付UIは次の実装対象です。"));
-accessButton.addEventListener("click", () => {
-  accessMode = accessMode === "フルアクセス" ? "確認モード" : "フルアクセス";
-  accessButton.textContent = `${accessMode}⌄`;
-  addStatus(`権限表示を ${accessMode} に切り替えました。`);
+addButton.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", async () => {
+  const files = Array.from(fileInput.files || []).filter((file) => file.type.startsWith("image/"));
+  try {
+    pendingFiles = pendingFiles.concat(await Promise.all(files.map(readFileAsDataUrl)));
+    renderAttachments();
+    if (files.length) addStatus(`${files.length}件の画像を添付しました。送信時にCodexへ渡します。`);
+  } catch (error) {
+    addEntry("error", `添付に失敗しました: ${error.message}`);
+  } finally {
+    fileInput.value = "";
+  }
 });
-thinkingButton.addEventListener("click", () => addStatus("推論/処理状態ボタンを押しました。現在のthread状態を会話ログに記録しました。"));
+accessButton.addEventListener("click", () => {
+  const index = accessModes.findIndex((candidate) => candidate.label === accessMode.label);
+  accessMode = accessModes[(index + 1) % accessModes.length];
+  accessButton.textContent = `${accessMode.label}⌄`;
+  addStatus(`権限を ${accessMode.label} に切り替えました。次の送信から反映します。`);
+});
+thinkingButton.addEventListener("click", showStatus);
+modelButton.addEventListener("click", showModels);
+statusButton.addEventListener("click", showStatus);
+webSearchButton.addEventListener("click", () => {
+  promptInput.value = `${promptInput.value}${promptInput.value ? "\n" : ""}Web調査を使って確認してください。`;
+  promptInput.focus();
+});
 for (const button of artifactButtons) {
   button.addEventListener("click", () => {
     for (const candidate of artifactButtons) candidate.classList.toggle("active", candidate === button);
-    addStatus(`${button.dataset.artifact} をアーティファクトとして選択しました。`);
+    showArtifact(button.dataset.artifact);
   });
 }
 

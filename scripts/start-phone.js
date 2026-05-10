@@ -14,6 +14,7 @@ const codexUrl = `ws://127.0.0.1:${codexPort}`;
 const workdir = process.env.CODEX_WORKDIR || root;
 const model = process.env.CODEX_MODEL || "gpt-5.4";
 const tokenPath = path.join(root, ".phone-token");
+const uploadDir = path.join(root, ".uploads");
 const bridges = new Map();
 
 function getToken() {
@@ -120,6 +121,64 @@ function sendJson(res, status, body) {
     "cache-control": "no-store",
   });
   res.end(JSON.stringify(body));
+}
+
+function requireToken(url, phoneToken, res) {
+  if (url.searchParams.get("token") === phoneToken) return true;
+  sendJson(res, 401, { error: "invalid token" });
+  return false;
+}
+
+function safeRelativePath(input) {
+  const clean = String(input || "").replace(/^[/\\]+/, "");
+  const target = path.resolve(root, clean);
+  if (!target.startsWith(`${root}${path.sep}`) && target !== root) return null;
+  return target;
+}
+
+function readAutomations() {
+  const home = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  const automationsDir = path.join(home, "automations");
+  if (!fs.existsSync(automationsDir)) return [];
+  return fs
+    .readdirSync(automationsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const automationToml = path.join(automationsDir, entry.name, "automation.toml");
+      const raw = fs.existsSync(automationToml) ? fs.readFileSync(automationToml, "utf8") : "";
+      const name = raw.match(/^name\s*=\s*"([^"]+)"/m)?.[1] || entry.name;
+      const status = raw.match(/^status\s*=\s*"([^"]+)"/m)?.[1] || "UNKNOWN";
+      return { id: entry.name, name, status };
+    });
+}
+
+function saveDataUrlAttachment(attachment) {
+  const match = String(attachment.dataUrl || "").match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  const mime = match[1];
+  if (!mime.startsWith("image/")) return null;
+  fs.mkdirSync(uploadDir, { recursive: true });
+  const extension = mime.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "png";
+  const safeName = String(attachment.name || "upload")
+    .replace(/[^a-z0-9._-]/gi, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 64);
+  const fileName = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}-${safeName || "image"}.${extension}`;
+  const target = path.join(uploadDir, fileName);
+  fs.writeFileSync(target, Buffer.from(match[2], "base64"), { mode: 0o600 });
+  return { type: "localImage", path: target };
+}
+
+function sandboxPolicyForMode(mode) {
+  if (mode === "danger-full-access") return { type: "dangerFullAccess" };
+  if (mode === "read-only") return { type: "readOnly", networkAccess: true };
+  return {
+    type: "workspaceWrite",
+    writableRoots: [workdir],
+    networkAccess: true,
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: false,
+  };
 }
 
 function serveStatic(req, res) {
@@ -310,18 +369,34 @@ class SharedBridge {
     this.upstream.on("close", () => this.emit("status", { text: "Codex接続が閉じました" }));
   }
 
-  prompt(text) {
+  prompt(text, attachments = [], options = {}) {
     if (!this.threadId) {
       this.emit("error", { text: "Thread is not ready yet" });
       return;
     }
-    const id = this.request("turn/start", {
+    const input = [{ type: "text", text, text_elements: [] }];
+    const savedImages = [];
+    for (const attachment of attachments || []) {
+      const saved = saveDataUrlAttachment(attachment);
+      if (saved) {
+        input.push(saved);
+        savedImages.push(path.basename(saved.path));
+      }
+    }
+    const params = {
       threadId: this.threadId,
-      input: [{ type: "text", text, text_elements: [] }],
+      input,
+    };
+    if (options.model) params.model = options.model;
+    if (options.approvalPolicy) params.approvalPolicy = options.approvalPolicy;
+    if (options.sandboxMode) params.sandboxPolicy = sandboxPolicyForMode(options.sandboxMode);
+    const id = this.request("turn/start", {
+      ...params,
     });
     this.pending.set(id, "turn/start");
-    this.history.push({ type: "user", text });
-    this.emit("user", { text });
+    const displayText = savedImages.length ? `${text}\n\n添付: ${savedImages.join(", ")}` : text;
+    this.history.push({ type: "user", text: displayText });
+    this.emit("user", { text: displayText });
   }
 
   approval(requestMsg, decision) {
@@ -357,7 +432,7 @@ function bindBrowser(browser, phoneToken, threadId) {
       browser.close();
       return;
     }
-    if (msg.type === "prompt") bridge.prompt(msg.text);
+    if (msg.type === "prompt") bridge.prompt(msg.text, msg.attachments, msg.options);
     if (msg.type === "approval") bridge.approval(msg.request, msg.decision);
   });
 }
@@ -374,10 +449,7 @@ async function main() {
       return;
     }
     if (url.pathname === "/api/threads") {
-      if (url.searchParams.get("token") !== phoneToken) {
-        sendJson(res, 401, { error: "invalid token" });
-        return;
-      }
+      if (!requireToken(url, phoneToken, res)) return;
       try {
         const result = await appServerRequest("thread/list", {
           limit: 30,
@@ -390,6 +462,79 @@ async function main() {
       } catch (error) {
         sendJson(res, 500, { error: error.message });
       }
+      return;
+    }
+    if (url.pathname === "/api/models") {
+      if (!requireToken(url, phoneToken, res)) return;
+      try {
+        const result = await appServerRequest("model/list", { limit: 80, includeHidden: false });
+        sendJson(res, 200, result);
+      } catch (error) {
+        sendJson(res, 500, { error: error.message });
+      }
+      return;
+    }
+    if (url.pathname === "/api/plugins") {
+      if (!requireToken(url, phoneToken, res)) return;
+      try {
+        const result = await appServerRequest("plugin/list", { cwds: [workdir] });
+        sendJson(res, 200, result);
+      } catch (error) {
+        sendJson(res, 500, { error: error.message });
+      }
+      return;
+    }
+    if (url.pathname === "/api/config") {
+      if (!requireToken(url, phoneToken, res)) return;
+      try {
+        const [config, auth] = await Promise.allSettled([
+          appServerRequest("config/read", { includeLayers: false, cwd: workdir }),
+          appServerRequest("getAuthStatus", {}),
+        ]);
+        sendJson(res, 200, {
+          config: config.status === "fulfilled" ? config.value : null,
+          auth: auth.status === "fulfilled" ? auth.value : null,
+          errors: [config, auth]
+            .filter((result) => result.status === "rejected")
+            .map((result) => result.reason.message),
+        });
+      } catch (error) {
+        sendJson(res, 500, { error: error.message });
+      }
+      return;
+    }
+    if (url.pathname === "/api/status") {
+      if (!requireToken(url, phoneToken, res)) return;
+      sendJson(res, 200, {
+        workdir,
+        model,
+        codexUrl,
+        uiPort,
+        codexPort,
+        bridges: Array.from(bridges.values()).map((bridge) => ({
+          threadId: bridge.threadId,
+          clients: bridge.clients.size,
+          ready: bridge.ready,
+        })),
+      });
+      return;
+    }
+    if (url.pathname === "/api/automations") {
+      if (!requireToken(url, phoneToken, res)) return;
+      sendJson(res, 200, { data: readAutomations() });
+      return;
+    }
+    if (url.pathname === "/api/file") {
+      if (!requireToken(url, phoneToken, res)) return;
+      const target = safeRelativePath(url.searchParams.get("path"));
+      if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
+        sendJson(res, 404, { error: "file not found" });
+        return;
+      }
+      sendJson(res, 200, {
+        path: path.relative(root, target),
+        text: fs.readFileSync(target, "utf8").slice(0, 80_000),
+      });
       return;
     }
     serveStatic(req, res);

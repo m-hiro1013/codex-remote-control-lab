@@ -89,6 +89,14 @@ The current phone bridge supports:
 - starting a Codex thread
 - sharing the same bridge thread across multiple browsers, such as a PC browser and a phone browser
 - listing recent existing Codex threads from `~/.codex` and resuming one from the browser UI
+- searching/filtering the visible recent thread list
+- reading installed plugin data from `plugin/list`
+- reading model data from `model/list` and applying the selected model to the next turn
+- reading configuration/auth status from `config/read` and `getAuthStatus`
+- listing local Codex automation definitions from `~/.codex/automations`
+- switching approval/sandbox mode for the next turn through `turn/start`
+- previewing repository files in the artifact panel
+- attaching browser-selected images by saving them locally and sending them as `localImage` inputs
 - sending prompts from the phone
 - streaming assistant text back to the phone
 - showing command/file-change approval requests with approve/decline buttons
@@ -103,6 +111,8 @@ http://192.168.11.8:45214/?token=...&thread=019e...
 This is not a pixel-for-pixel mirror of the Codex Desktop app. It is a browser client that uses the same Codex app-server protocol and the same default `~/.codex` session store, so existing threads can be listed/resumed and multiple browser clients can share one bridge-managed thread.
 
 The bridge was smoke-tested locally by sending `Reply exactly: PHONE_BRIDGE_OK` through the phone WebSocket path and receiving `PHONE_BRIDGE_OK`.
+
+The expanded desktop-style controls were smoke-tested by pressing the visible browser UI buttons for search, plugins, automations, settings, model selection, access mode, background status, web-search prompt insertion, artifact preview, and send. The send check used `Reply exactly: BUTTON_SMOKE_OK` and received `BUTTON_SMOKE_OK`.
 
 ## UI Verification Screenshots
 
@@ -135,6 +145,14 @@ Button behavior checks:
 ![Send button response screenshot](docs/assets/button-send-response.png)
 
 ![Mobile drawer close screenshot](docs/assets/button-mobile-drawer-close.png)
+
+Expanded Desktop-like controls:
+
+![Expanded desktop controls screenshot](docs/assets/desktop-feature-panel.png)
+
+![Plugin list button screenshot](docs/assets/desktop-feature-plugins.png)
+
+![Expanded mobile controls screenshot](docs/assets/desktop-feature-mobile.png)
 
 ## Observed WebSocket Behavior
 
