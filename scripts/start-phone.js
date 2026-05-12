@@ -53,10 +53,12 @@ const historySyncEnabled = isHistorySyncEnabled(process.env);
 const envMode = String(process.env.ENV || "").trim().toLowerCase();
 const debugNoToken =
   /^(1|true|yes|on)$/i.test(String(process.env.PHONE_DEBUG_NO_TOKEN || "")) ||
-  ["debug", "local-debug", "tokenless"].includes(envMode);
+  ["debug", "local-debug", "tokenless", "debug-lan", "lan-debug", "tokenless-lan"].includes(envMode);
+const debugBind = String(process.env.PHONE_DEBUG_BIND || "").trim().toLowerCase();
+const debugLan = debugNoToken && (["debug-lan", "lan-debug", "tokenless-lan"].includes(envMode) || debugBind === "lan");
 const authMode = debugNoToken ? "debug-no-token" : "token";
 const tokenRequired = authMode === "token";
-const listenHost = tokenRequired ? "0.0.0.0" : "127.0.0.1";
+const listenHost = tokenRequired || debugLan ? "0.0.0.0" : "127.0.0.1";
 const tokenPath = path.join(root, ".phone-token");
 const uploadDir = path.join(root, ".uploads");
 const bridges = new Map();
@@ -1157,23 +1159,24 @@ async function main() {
   });
 
   server.listen(uiPort, listenHost, () => {
-    const addresses = tokenRequired ? lanAddresses() : ["127.0.0.1"];
+    const addresses = tokenRequired || debugLan ? lanAddresses() : ["127.0.0.1"];
     const urls = bridgeUrls(addresses, uiPort, phoneToken);
     console.log("");
     console.log("Codex shared browser bridge is ready.");
     for (const url of urls) console.log(`  ${url}`);
     console.log("");
-    console.log(`Auth:    ${tokenRequired ? "token" : "debug-no-token (localhost only)"}`);
+    console.log(`Auth:    ${tokenRequired ? "token" : debugLan ? "debug-no-token (LAN exposed)" : "debug-no-token (localhost only)"}`);
     console.log(`Listen:  ${listenHost}:${uiPort}`);
     console.log(`Workdir: ${workdir}`);
     console.log(`Model:   ${model}`);
     console.log(`Codex:   ${shouldStartCodexServer ? codexUrl : codexSocketPath || codexUrl}`);
     if (tokenRequired) console.log("Open the same URL from PC and phone to share one bridge thread.");
+    else if (debugLan) console.log("Tokenless debug LAN mode is exposed to this network. Use only on a trusted LAN.");
     else console.log("Open the URL on this Mac only; tokenless debug mode is not exposed to the LAN.");
     console.log("Press Ctrl+C to stop.");
 
     if (!tokenRequired) {
-      console.log("[notify] skipped in debug-no-token localhost mode");
+      console.log("[notify] skipped in debug-no-token mode");
       return;
     }
 

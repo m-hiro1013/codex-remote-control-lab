@@ -31,6 +31,8 @@ PHONE_DEBUG_NO_TOKEN=1 npm run phone
 
 この場合は `http://127.0.0.1:45214/` のような token なし URL を表示し、bridge は `127.0.0.1` に bind されます。スマホ、LAN 共有、tunnel、shared network 用ではありません。
 
+信頼できる LAN 上の別端末から token なしでデバッグする場合は、`ENV=debug-lan`、または `PHONE_DEBUG_NO_TOKEN=1` と `PHONE_DEBUG_BIND=lan` を組み合わせます。この場合は bridge を `0.0.0.0` に bind し、token なし LAN URL を表示します。自分が管理する private network でだけ使ってください。
+
 ## 構成
 
 ```text
@@ -70,6 +72,8 @@ CODEX_HISTORY_SYNC=0 npm run phone
 PHONE_TOKEN=choose-your-own-token npm run phone
 PHONE_DEBUG_NO_TOKEN=1 npm run phone
 ENV=debug npm run phone
+ENV=debug-lan npm run phone
+PHONE_DEBUG_BIND=lan PHONE_DEBUG_NO_TOKEN=1 npm run phone
 PHONE_NTFY_TOPIC=your-private-topic npm run phone
 PHONE_PUSHOVER_TOKEN=app-token PHONE_PUSHOVER_USER=user-key npm run phone
 PHONE_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... npm run phone

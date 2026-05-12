@@ -58,6 +58,8 @@ You can also put `ENV=debug` in a local `.env` file for the same localhost-only 
 
 That debug mode binds the bridge to `127.0.0.1` and prints a URL without `?token=...`. Do not use it for LAN, tunnel, or shared-network access.
 
+If you intentionally need tokenless access from another device on a trusted LAN, use `ENV=debug-lan`. This binds the bridge to `0.0.0.0` and prints LAN URLs without a token, so only use it on a private network you control.
+
 ## 🧭 Architecture
 
 ```text
@@ -99,6 +101,8 @@ CODEX_HISTORY_SYNC=0 npm run phone
 PHONE_TOKEN=choose-your-own-token npm run phone
 PHONE_DEBUG_NO_TOKEN=1 npm run phone
 ENV=debug npm run phone
+ENV=debug-lan npm run phone
+PHONE_DEBUG_BIND=lan PHONE_DEBUG_NO_TOKEN=1 npm run phone
 PHONE_NTFY_TOPIC=your-private-topic npm run phone
 PHONE_PUSHOVER_TOKEN=app-token PHONE_PUSHOVER_USER=user-key npm run phone
 PHONE_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... npm run phone
@@ -216,7 +220,7 @@ More screenshots are available in `docs/assets/` and through the artifact panel 
 - Keep the Codex app-server on `127.0.0.1`.
 - Do not bind an unauthenticated Codex app-server to a LAN or public interface.
 - Treat the printed `?token=...` URL like a local access key. Do not post it in public issues, chats, screenshots, or streams.
-- Use `PHONE_DEBUG_NO_TOKEN=1` only for localhost debugging; it binds to `127.0.0.1` and must not be exposed to LAN devices, tunnels, or shared networks.
+- Use `PHONE_DEBUG_NO_TOKEN=1` or `ENV=debug` for localhost debugging. Use `ENV=debug-lan` only when you intentionally want tokenless LAN access on a trusted private network.
 - Stop the bridge with `Ctrl+C`. If you close the terminal or restart the PC, run `npm run phone` again.
 - Use SSH forwarding, a VPN, or a mesh network for access outside a trusted LAN.
 - Do not expose the bridge through an unauthenticated public tunnel or raw port forward.

@@ -31,6 +31,8 @@ For repeated local debugging, put `ENV=debug` in the repo-local `.env` file. The
 
 This prints a tokenless `http://127.0.0.1:45214/` URL and binds the bridge to `127.0.0.1`. It is not for phones, LAN sharing, tunnels, or shared networks.
 
+For tokenless debugging from another device on a trusted LAN, set `ENV=debug-lan` or `PHONE_DEBUG_BIND=lan` together with `PHONE_DEBUG_NO_TOKEN=1`. This binds the bridge to `0.0.0.0` and prints tokenless LAN URLs. Use it only on a private network you control.
+
 ## Runtime Layout
 
 ```text
@@ -70,6 +72,8 @@ CODEX_HISTORY_SYNC=0 npm run phone
 PHONE_TOKEN=choose-your-own-token npm run phone
 PHONE_DEBUG_NO_TOKEN=1 npm run phone
 ENV=debug npm run phone
+ENV=debug-lan npm run phone
+PHONE_DEBUG_BIND=lan PHONE_DEBUG_NO_TOKEN=1 npm run phone
 PHONE_NTFY_TOPIC=your-private-topic npm run phone
 PHONE_PUSHOVER_TOKEN=app-token PHONE_PUSHOVER_USER=user-key npm run phone
 PHONE_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... npm run phone
