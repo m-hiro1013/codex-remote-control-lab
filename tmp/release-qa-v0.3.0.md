@@ -21,6 +21,7 @@
 | Tokenless debugging is explicit and localhost-only unless LAN exposure is separately requested | `scripts/start-phone.js`, `.env.example`, `README.md`, `README.ja.md`, `SECURITY.md`, docs guides | `npm run docs:build`, `npm test`, code review of auth-mode branches | README, security docs, phone bridge docs, release collateral | operator debug mode |
 | v0.3.0 release collateral uses a versioned SVG header | `docs/public/release-header-v0.3.0.svg` | `xmllint --noout docs/public/release-header-v0.3.0.svg` | release notes, walkthrough, GitHub release body | docs/release visual asset |
 | README screenshot capture works against the current bridge mock API | `scripts/capture-readme-screenshots.js`, `docs/assets/*.png` | `npm run screenshots:readme` | README screenshot grids and release collateral | local screenshot tooling |
+| Workspace and review panels respect `CODEX_WORKDIR` when it differs from the bridge repo root | `scripts/start-phone.js`, `scripts/start-phone-workdir.test.js` | `npm test` | QA inventory | `/api/workspace`, `/api/review`, and `/api/file` open paths |
 
 ## Steady-State Docs Review
 
@@ -50,6 +51,7 @@
 | latest_release_links_updated | pass | VitePress nav points at v0.3.0 release and walkthrough pages |
 | svg_assets_validated | pass | `xmllint --noout docs/public/release-header-v0.3.0.svg` passed; PowerShell SVG validator unavailable because `pwsh`/`powershell` is not installed |
 | screenshot_pipeline_health | pass | `npm run screenshots:readme` passed after adding the current `/api/info` mock route |
+| review_feedback_addressed | pass | PR review comments about `CODEX_WORKDIR` path anchoring and synchronous workspace/review operations addressed in `scripts/start-phone.js`; regression coverage added in `scripts/start-phone-workdir.test.js` |
 | docs_assets_committed_before_tag | pass | Release collateral is committed on `release/v0.3.0` before the tag is created |
 | docs_deployed_live | not_applicable | PR-first flow: live docs URLs can be verified after merge/deploy before GitHub Release publication |
 | tag_local_remote | not_applicable | PR-first flow: tag creation is deferred until the release PR is merged to `main` |
