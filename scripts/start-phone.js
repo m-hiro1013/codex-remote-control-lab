@@ -50,12 +50,9 @@ const shouldStartCodexServer = !process.env.CODEX_APP_SERVER_URL && !codexSocket
 const workdir = process.env.CODEX_WORKDIR || root;
 const model = process.env.CODEX_MODEL || "gpt-5.4";
 const historySyncEnabled = isHistorySyncEnabled(process.env);
-const envMode = String(process.env.ENV || "").trim().toLowerCase();
-const debugNoToken =
-  /^(1|true|yes|on)$/i.test(String(process.env.PHONE_DEBUG_NO_TOKEN || "")) ||
-  ["debug", "local-debug", "tokenless", "debug-lan", "lan-debug", "tokenless-lan"].includes(envMode);
+const debugNoToken = /^(1|true|yes|on)$/i.test(String(process.env.PHONE_DEBUG_NO_TOKEN || ""));
 const debugBind = String(process.env.PHONE_DEBUG_BIND || "").trim().toLowerCase();
-const debugLan = debugNoToken && (["debug-lan", "lan-debug", "tokenless-lan"].includes(envMode) || debugBind === "lan");
+const debugLan = debugNoToken && debugBind === "lan";
 const authMode = debugNoToken ? "debug-no-token" : "token";
 const tokenRequired = authMode === "token";
 const listenHost = tokenRequired || debugLan ? "0.0.0.0" : "127.0.0.1";

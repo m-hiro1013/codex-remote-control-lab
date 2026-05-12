@@ -33,11 +33,11 @@ For localhost-only UI debugging, you can disable the token requirement explicitl
 PHONE_DEBUG_NO_TOKEN=1 npm run phone
 ```
 
-For repeated local debugging, put `ENV=debug` in the repo-local `.env` file. The bridge loads `.env` before resolving this mode.
+For repeated local debugging, put `PHONE_DEBUG_NO_TOKEN=1` in the repo-local `.env` file. The bridge loads `.env` before resolving this mode.
 
 This prints a tokenless `http://127.0.0.1:45214/` URL and binds the bridge to `127.0.0.1`. It is not for phones, LAN sharing, tunnels, or shared networks.
 
-For tokenless debugging from another device on a trusted LAN, set `ENV=debug-lan` or `PHONE_DEBUG_BIND=lan` together with `PHONE_DEBUG_NO_TOKEN=1`. This binds the bridge to `0.0.0.0` and prints tokenless LAN URLs. Use it only on a private network you control.
+For tokenless debugging from another device on a trusted LAN, set `PHONE_DEBUG_BIND=lan` together with `PHONE_DEBUG_NO_TOKEN=1`. This binds the bridge to `0.0.0.0` and prints tokenless LAN URLs. Use it only on a private network you control.
 
 ## Runtime Layout
 
@@ -69,7 +69,6 @@ In this mode, OCdex does not start a new app-server. It uses the app-server behi
 ## Useful Environment Variables
 
 ```text
-ENV=token
 PHONE_UI_PORT=45214
 CODEX_WORKDIR=/Users/admin/Prj/some-project
 CODEX_MODEL=gpt-5.4
