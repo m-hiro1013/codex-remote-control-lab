@@ -465,6 +465,20 @@ function parseNumstat(numstatText) {
   );
 }
 
+function parseStatusPorcelain(statusText) {
+  const records = String(statusText || "").split("\0").filter(Boolean);
+  const files = [];
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i];
+    const status = record.slice(0, 2).trim() || "modified";
+    const filePath = record.slice(3);
+    if (!filePath) continue;
+    files.push({ status, path: filePath });
+    if (/[RC]/.test(status) && i + 1 < records.length) i += 1;
+  }
+  return files;
+}
+
 async function decorateReviewFiles(files) {
   const decorated = await Promise.all(files
     .filter((file) => !shouldSkipReviewPath(file.path))
@@ -494,16 +508,12 @@ async function decorateReviewFiles(files) {
 
 function workingTreeReviewFiles(statusText, numstatText) {
   const numstat = parseNumstat(numstatText);
-  return statusText
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      const status = line.slice(0, 2).trim() || "modified";
-      const rawPath = line.slice(3).trim();
-      const filePath = parseGitPathName(rawPath.includes(" -> ") ? rawPath.split(" -> ").pop() : rawPath);
+  return parseStatusPorcelain(statusText)
+    .map((file) => {
+      const filePath = parseGitPathName(file.path);
       const stats = numstat.get(filePath) || { additions: 0, deletions: 0 };
       return {
-        status,
+        status: file.status,
         path: filePath,
         additions: stats.additions,
         deletions: stats.deletions,
@@ -532,7 +542,7 @@ async function lastCommitReviewFiles() {
 async function reviewSummary() {
   const [branch, statusText, statText, numstatText] = await Promise.all([
     runGit(["branch", "--show-current"]),
-    runGit(["status", "--short"]),
+    runGit(["status", "--porcelain=v1", "-z"]),
     runGit(["diff", "HEAD", "--stat", "--"]),
     runGit(["diff", "HEAD", "--numstat", "--"]),
   ]);

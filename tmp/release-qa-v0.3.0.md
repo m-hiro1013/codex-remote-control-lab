@@ -51,7 +51,7 @@
 | latest_release_links_updated | pass | VitePress nav points at v0.3.0 release and walkthrough pages |
 | svg_assets_validated | pass | `xmllint --noout docs/public/release-header-v0.3.0.svg` passed; PowerShell SVG validator unavailable because `pwsh`/`powershell` is not installed |
 | screenshot_pipeline_health | pass | `npm run screenshots:readme` passed after adding the current `/api/info` mock route |
-| review_feedback_addressed | pass | PR review comments about `CODEX_WORKDIR` path anchoring and synchronous workspace/review operations addressed in `scripts/start-phone.js`; regression coverage added in `scripts/start-phone-workdir.test.js` |
+| review_feedback_addressed | pass | PR review comments about `CODEX_WORKDIR` path anchoring, synchronous workspace/review operations, and C-quoted `git status --short` parsing addressed in `scripts/start-phone.js`; regression coverage added in `scripts/start-phone-workdir.test.js` |
 | docs_assets_committed_before_tag | pass | Release collateral is committed on `release/v0.3.0` before the tag is created |
 | docs_deployed_live | not_applicable | PR-first flow: live docs URLs can be verified after merge/deploy before GitHub Release publication |
 | tag_local_remote | not_applicable | PR-first flow: tag creation is deferred until the release PR is merged to `main` |

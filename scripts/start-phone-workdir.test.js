@@ -41,14 +41,19 @@ test("reviewSummary marks CODEX_WORKDIR git paths as openable", async () => {
   runGit(["config", "user.email", "test@example.com"]);
   runGit(["config", "user.name", "Test User"]);
   fs.writeFileSync(path.join(workdir, "review.md"), "before\n", "utf8");
-  runGit(["add", "review.md"]);
+  fs.writeFileSync(path.join(workdir, "review file.md"), "before\n", "utf8");
+  runGit(["add", "review.md", "review file.md"]);
   runGit(["commit", "-m", "initial"]);
   fs.writeFileSync(path.join(workdir, "review.md"), "before\nafter\n", "utf8");
+  fs.writeFileSync(path.join(workdir, "review file.md"), "before\nafter\n", "utf8");
 
   const summary = await reviewSummary();
   const reviewFile = summary.files.find((file) => file.path === "review.md");
+  const spacedFile = summary.files.find((file) => file.path === "review file.md");
 
   assert.equal(summary.source, "working tree");
   assert.equal(reviewFile?.openable, true);
   assert.equal(reviewFile?.kind, "markdown");
+  assert.equal(spacedFile?.openable, true);
+  assert.equal(spacedFile?.additions, 1);
 });
