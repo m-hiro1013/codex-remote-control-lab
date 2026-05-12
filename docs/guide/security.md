@@ -24,10 +24,13 @@ For remote access outside a trusted local network, prefer:
 
 The bridge creates `.phone-token` with mode `0600` when `PHONE_TOKEN` is not provided. Delete `.phone-token` to rotate the generated token.
 
+`PHONE_DEBUG_NO_TOKEN=1` is a localhost-only debugging exception. In that mode the bridge binds to `127.0.0.1` and does not create or require a token. Do not use it for phones, LAN sharing, tunnels, or shared networks.
+
 ## Beginner Runtime Notes
 
 - Treat the printed `?token=...` URL like a local access key. Anyone who can open it can drive the bridge for that running session.
 - Do not paste tokenized URLs into public issues, shared chats, screenshots, or streams.
+- Do not expose the no-token debug URL outside the host machine.
 - Stop the bridge with `Ctrl+C` in the terminal that is running `npm run phone`.
 - Closing the terminal or restarting the PC stops the bridge. Run `npm run phone` again when you want to use it.
 - Run the bridge from a normal user account, not a root/admin shell.

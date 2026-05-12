@@ -50,6 +50,10 @@ const shouldStartCodexServer = !process.env.CODEX_APP_SERVER_URL && !codexSocket
 const workdir = process.env.CODEX_WORKDIR || root;
 const model = process.env.CODEX_MODEL || "gpt-5.4";
 const historySyncEnabled = isHistorySyncEnabled(process.env);
+const debugNoToken = /^(1|true|yes|on)$/i.test(String(process.env.PHONE_DEBUG_NO_TOKEN || ""));
+const authMode = debugNoToken ? "debug-no-token" : "token";
+const tokenRequired = authMode === "token";
+const listenHost = tokenRequired ? "0.0.0.0" : "127.0.0.1";
 const tokenPath = path.join(root, ".phone-token");
 const uploadDir = path.join(root, ".uploads");
 const bridges = new Map();
@@ -239,6 +243,7 @@ function sendJson(res, status, body) {
 }
 
 function requireToken(url, phoneToken, res) {
+  if (!tokenRequired) return true;
   if (url.searchParams.get("token") === phoneToken) return true;
   sendJson(res, 401, { error: "invalid token" });
   return false;
@@ -900,7 +905,7 @@ function bindBrowser(browser, phoneToken, threadId) {
 
   browser.on("message", (data) => {
     const msg = JSON.parse(data.toString());
-    if (msg.token !== phoneToken) {
+    if (tokenRequired && msg.token !== phoneToken) {
       bridge.emitTo(browser, "error", { text: "Invalid token" });
       browser.close();
       return;
@@ -911,7 +916,7 @@ function bindBrowser(browser, phoneToken, threadId) {
 }
 
 async function main() {
-  const phoneToken = getToken();
+  const phoneToken = tokenRequired ? getToken() : "";
   const codex = shouldStartCodexServer ? startCodexServer() : null;
   if (shouldStartCodexServer) {
     await waitForReady();
@@ -922,7 +927,15 @@ async function main() {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     if (url.pathname === "/api/info") {
-      sendJson(res, 200, { model, workdir, codexUrl, codexSocketPath: codexSocketPath || null, managedCodexServer: shouldStartCodexServer, tokenRequired: true });
+      sendJson(res, 200, {
+        model,
+        workdir,
+        codexUrl,
+        codexSocketPath: codexSocketPath || null,
+        managedCodexServer: shouldStartCodexServer,
+        tokenRequired,
+        authMode,
+      });
       return;
     }
     if (url.pathname === "/api/threads") {
@@ -989,6 +1002,8 @@ async function main() {
         codexSocketPath: codexSocketPath || null,
         managedCodexServer: shouldStartCodexServer,
         historySyncEnabled,
+        tokenRequired,
+        authMode,
         uiPort,
         codexPort,
         bridges: Array.from(bridges.values()).map((bridge) => ({
@@ -1129,7 +1144,7 @@ async function main() {
       socket.destroy();
       return;
     }
-    if (url.searchParams.get("token") !== phoneToken) {
+    if (tokenRequired && url.searchParams.get("token") !== phoneToken) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
@@ -1138,17 +1153,26 @@ async function main() {
     wss.handleUpgrade(req, socket, head, (ws) => bindBrowser(ws, phoneToken, threadId));
   });
 
-  server.listen(uiPort, "0.0.0.0", () => {
-    const urls = bridgeUrls(lanAddresses(), uiPort, phoneToken);
+  server.listen(uiPort, listenHost, () => {
+    const addresses = tokenRequired ? lanAddresses() : ["127.0.0.1"];
+    const urls = bridgeUrls(addresses, uiPort, phoneToken);
     console.log("");
     console.log("Codex shared browser bridge is ready.");
     for (const url of urls) console.log(`  ${url}`);
     console.log("");
+    console.log(`Auth:    ${tokenRequired ? "token" : "debug-no-token (localhost only)"}`);
+    console.log(`Listen:  ${listenHost}:${uiPort}`);
     console.log(`Workdir: ${workdir}`);
     console.log(`Model:   ${model}`);
     console.log(`Codex:   ${shouldStartCodexServer ? codexUrl : codexSocketPath || codexUrl}`);
-    console.log("Open the same URL from PC and phone to share one bridge thread.");
+    if (tokenRequired) console.log("Open the same URL from PC and phone to share one bridge thread.");
+    else console.log("Open the URL on this Mac only; tokenless debug mode is not exposed to the LAN.");
     console.log("Press Ctrl+C to stop.");
+
+    if (!tokenRequired) {
+      console.log("[notify] skipped in debug-no-token localhost mode");
+      return;
+    }
 
     notifyBridgeUrls(urls).then((results) => {
       for (const result of results) {

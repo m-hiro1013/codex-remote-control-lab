@@ -48,6 +48,14 @@ http://192.168.11.8:45214/?token=...
 
 同じ Wi-Fi/LAN 上のスマホで、その URL をそのまま開きます。
 
+token なしで UI をローカルデバッグする場合は、次を使います。
+
+```bash
+PHONE_DEBUG_NO_TOKEN=1 npm run phone
+```
+
+このデバッグモードでは bridge を `127.0.0.1` に bind し、`?token=...` なしの URL を表示します。LAN、tunnel、shared network では使わないでください。
+
 ## 🧭 構成
 
 ```text
@@ -87,6 +95,7 @@ CODEX_APP_SERVER_SOCK=/Users/admin/.codex/app-server-control/app-server-control.
 CODEX_APP_SERVER_URL=ws://127.0.0.1:45213 npm run phone
 CODEX_HISTORY_SYNC=0 npm run phone
 PHONE_TOKEN=choose-your-own-token npm run phone
+PHONE_DEBUG_NO_TOKEN=1 npm run phone
 PHONE_NTFY_TOPIC=your-private-topic npm run phone
 PHONE_PUSHOVER_TOKEN=app-token PHONE_PUSHOVER_USER=user-key npm run phone
 PHONE_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... npm run phone
@@ -204,6 +213,7 @@ Mobile flow:
 - Codex app-server は `127.0.0.1` に保ちます。
 - 認証なしの Codex app-server を LAN や public interface に直接 bind しないでください。
 - 表示された `?token=...` 付き URL は local access key として扱い、公開 issue、共有チャット、スクリーンショット、配信には載せないでください。
+- `PHONE_DEBUG_NO_TOKEN=1` は localhost デバッグ専用です。`127.0.0.1` に bind され、LAN 端末、tunnel、shared network へは公開しないでください。
 - bridge は `Ctrl+C` で停止します。terminal を閉じた場合や PC を再起動した後は、もう一度 `npm run phone` を実行します。
 - trusted LAN 外から使う場合は SSH forwarding、VPN、mesh network を優先してください。
 - 認証なしの public tunnel や raw port forwarding で bridge を公開しないでください。

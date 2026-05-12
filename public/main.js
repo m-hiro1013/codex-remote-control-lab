@@ -47,6 +47,8 @@ const rightResizeHandle = document.querySelector("#rightResizeHandle");
 const params = new URLSearchParams(location.search);
 const token = params.get("token") || localStorage.getItem("codexPhoneToken") || "";
 let selectedThread = params.get("thread") || "";
+let tokenRequired = true;
+let authMode = "token";
 if (token) localStorage.setItem("codexPhoneToken", token);
 if (params.has("token") && window.history?.replaceState) {
   const cleanUrl = new URL(location.href);
@@ -544,7 +546,7 @@ function setEntryText(body, kind, text) {
 
 function urlWithToken(url) {
   const target = new URL(url, location.href);
-  target.searchParams.set("token", token);
+  if (tokenRequired && token) target.searchParams.set("token", token);
   return target.pathname + target.search;
 }
 
@@ -651,7 +653,7 @@ function renderReviewDigest(result) {
 }
 
 async function appendReviewDigest() {
-  if (!token) return;
+  if (tokenRequired && !token) return;
   try {
     const result = await apiGet("/api/review");
     const signature = JSON.stringify({
@@ -872,19 +874,36 @@ function renderThreadList() {
 }
 
 function authQuery() {
-  return `token=${encodeURIComponent(token)}`;
+  return tokenRequired && token ? `token=${encodeURIComponent(token)}` : "";
 }
 
 async function apiGet(path) {
   const separator = path.includes("?") ? "&" : "?";
-  const response = await fetch(`${path}${separator}${authQuery()}`, { cache: "no-store" });
+  const query = authQuery();
+  const response = await fetch(query ? `${path}${separator}${query}` : path, { cache: "no-store" });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || `${response.status} ${response.statusText}`);
   return result;
 }
 
+async function loadBridgeInfo() {
+  try {
+    const info = await apiGet("/api/info");
+    tokenRequired = info.tokenRequired !== false;
+    authMode = info.authMode || (tokenRequired ? "token" : "debug-no-token");
+    if (!tokenRequired) {
+      localStorage.removeItem("codexPhoneToken");
+      addStatus("デバッグモード: token なしで localhost bridge に接続します。");
+    }
+    return info;
+  } catch (error) {
+    addEntry("error", `bridge情報を読めませんでした: ${error.message}`);
+    throw error;
+  }
+}
+
 async function loadThreads({ background = false } = {}) {
-  if (!token) return;
+  if (tokenRequired && !token) return;
   try {
     const result = await apiGet("/api/threads");
     threadCache = result.data || [];
@@ -920,7 +939,7 @@ async function refreshSelectedThread() {
 }
 
 async function loadArtifacts() {
-  if (!token) return;
+  if (tokenRequired && !token) return;
   try {
     const result = await apiGet("/api/artifacts");
     renderArtifactIndex(result.data || []);
@@ -1455,7 +1474,7 @@ function bindResizeHandle(handle, kind) {
 }
 
 function connect() {
-  if (!token) {
+  if (tokenRequired && !token) {
     addEntry("error", "URLに token がありません。Mac側に表示されたURLをそのまま開いてください。");
     return;
   }
@@ -1468,8 +1487,11 @@ function connect() {
   threadTitle.textContent = selected ? titleForThread(selected) : "新しい共有thread";
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const threadParam = selectedThread ? `&thread=${encodeURIComponent(selectedThread)}` : "";
-  ws = new WebSocket(`${proto}//${location.host}/bridge?token=${encodeURIComponent(token)}${threadParam}`);
+  const query = new URLSearchParams();
+  if (tokenRequired && token) query.set("token", token);
+  if (selectedThread) query.set("thread", selectedThread);
+  const bridgeQuery = query.toString();
+  ws = new WebSocket(`${proto}//${location.host}/bridge${bridgeQuery ? `?${bridgeQuery}` : ""}`);
   connectButton.disabled = true;
   meta.textContent = "接続中";
 
@@ -1736,7 +1758,12 @@ bindResizeHandle(leftResizeHandle, "left");
 bindResizeHandle(rightResizeHandle, "right");
 syncSidebarState();
 syncRightPanelState();
-loadArtifacts();
-loadThreads().catch(() => {}).finally(connect);
+loadBridgeInfo()
+  .then(() => loadArtifacts())
+  .then(() => loadThreads().catch(() => {}))
+  .then(connect)
+  .catch(() => {
+    setRunState("error", "bridge情報を確認できません");
+  });
 setInterval(() => loadThreads({ background: true }), 10_000);
 setInterval(refreshSelectedThread, 3_000);
