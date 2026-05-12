@@ -54,6 +54,8 @@ For localhost-only UI debugging without a token, run:
 PHONE_DEBUG_NO_TOKEN=1 npm run phone
 ```
 
+You can also put `ENV=debug` in a local `.env` file for the same localhost-only mode.
+
 That debug mode binds the bridge to `127.0.0.1` and prints a URL without `?token=...`. Do not use it for LAN, tunnel, or shared-network access.
 
 ## 🧭 Architecture
@@ -96,6 +98,7 @@ CODEX_APP_SERVER_URL=ws://127.0.0.1:45213 npm run phone
 CODEX_HISTORY_SYNC=0 npm run phone
 PHONE_TOKEN=choose-your-own-token npm run phone
 PHONE_DEBUG_NO_TOKEN=1 npm run phone
+ENV=debug npm run phone
 PHONE_NTFY_TOPIC=your-private-topic npm run phone
 PHONE_PUSHOVER_TOKEN=app-token PHONE_PUSHOVER_USER=user-key npm run phone
 PHONE_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... npm run phone

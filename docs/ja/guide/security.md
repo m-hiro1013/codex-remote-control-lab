@@ -24,7 +24,7 @@
 
 `PHONE_TOKEN` が未指定の場合、bridge は mode `0600` の `.phone-token` を作ります。token を rotate するときは `.phone-token` を削除します。
 
-`PHONE_DEBUG_NO_TOKEN=1` は localhost デバッグ専用の例外です。このモードでは bridge を `127.0.0.1` に bind し、token を作成・要求しません。スマホ、LAN 共有、tunnel、shared network では使わないでください。
+`PHONE_DEBUG_NO_TOKEN=1` は localhost デバッグ専用の例外です。local `.env` の `ENV=debug` でも、繰り返しのローカルデバッグ向けに同じ mode を有効化できます。このモードでは bridge を `127.0.0.1` に bind し、token を作成・要求しません。スマホ、LAN 共有、tunnel、shared network では使わないでください。
 
 ## 初心者向けの運用メモ
 
