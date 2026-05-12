@@ -24,7 +24,10 @@ const artifactButtons = document.querySelectorAll("[data-artifact]");
 const artifactTitle = document.querySelector("#artifactTitle");
 const artifactList = document.querySelector("#artifactList");
 const artifactPreview = document.querySelector("#artifactPreview");
-const terminalList = document.querySelector("#terminalList");
+const artifactTab = document.querySelector("#artifactTab");
+const workspaceTab = document.querySelector("#workspaceTab");
+const reviewTab = document.querySelector("#reviewTab");
+const panelTabButtons = document.querySelectorAll("[data-panel-tab]");
 const statusButton = document.querySelector("#statusButton");
 const webSearchButton = document.querySelector("#webSearchButton");
 const runState = document.querySelector("#runState");
@@ -73,6 +76,7 @@ let selectedReasoning = localStorage.getItem("codexPhoneReasoning") || "中";
 let settingsRenderSeq = 0;
 let artifactItems = [];
 let activeArtifactPath = "";
+let activePanel = "artifacts";
 let accessMode = {
   label: "フルアクセス",
   approvalPolicy: "never",
@@ -640,7 +644,7 @@ function addEntry(kind, text, images = []) {
   const tools = document.createElement("div");
   tools.className = "entry-tools";
   if (kind === "assistant" || kind === "user") {
-    tools.innerHTML = '<button type="button" class="entry-tool-button" aria-label="メッセージ操作"></button>';
+    tools.innerHTML = '<button type="button" class="entry-tool-button" data-message-action="copy" aria-label="メッセージをコピー" title="コピー"></button>';
   }
 
   el.append(avatar, body, tools);
@@ -845,8 +849,18 @@ function closeRightPanel({ restoreFocus = false } = {}) {
   if (restoreFocus && wasOpen) menuButton.focus();
 }
 
-function clearPanel(title) {
+function setActivePanel(panel) {
+  activePanel = panel;
+  for (const button of panelTabButtons) {
+    const active = button.dataset.panelTab === panel;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+}
+
+function clearPanel(title, panel = activePanel) {
   showRightPanel();
+  setActivePanel(panel);
   artifactTitle.textContent = title;
   artifactList.classList.remove("artifact-browser-list");
   artifactList.replaceChildren();
@@ -868,9 +882,15 @@ function addPanelRow(text, detail, onClick, icon = "") {
   return row;
 }
 
+function appendToPrompt(text) {
+  promptInput.value = `${promptInput.value}${promptInput.value ? "\n" : ""}${text}`;
+  promptInput.focus();
+}
+
 function renderArtifactIndex(items) {
   artifactItems = items;
   activeArtifactPath = "";
+  setActivePanel("artifacts");
   artifactTitle.textContent = "アーティファクト";
   artifactList.classList.add("artifact-browser-list");
   renderArtifactRows();
@@ -1023,6 +1043,82 @@ async function showModels() {
   }
 }
 
+function renderWorkspaceEntries(entries) {
+  artifactList.replaceChildren();
+  artifactList.classList.add("artifact-browser-list");
+  for (const entry of entries) {
+    const icon = entry.type === "directory" ? "DIR" : entry.kind === "image" ? "IMG" : entry.kind === "markdown" ? "MD" : "FILE";
+    const row = addPanelRow(entry.name || entry.path, entry.path, null, icon);
+    row.classList.add("workspace-row");
+    if (entry.type === "directory") {
+      row.disabled = true;
+      continue;
+    }
+    row.innerHTML += `
+      <span class="row-actions" aria-hidden="true">
+        <span>追加</span>
+      </span>
+    `;
+    row.addEventListener("click", (event) => {
+      if (event.altKey || event.metaKey) {
+        showArtifact(entry.path);
+        return;
+      }
+      appendToPrompt(`@${entry.path}`);
+      addStatus(`${entry.path} をチャット入力へ追加しました。`);
+    });
+    row.addEventListener("dblclick", () => showArtifact(entry.path));
+  }
+  if (!entries.length) addPanelRow("ワークスペース内のファイルは見つかりませんでした", "検索条件を変えるか、リポジトリを確認してください");
+}
+
+async function showWorkspace() {
+  clearPanel("ワークスペース", "workspace");
+  addPanelRow("読み込み中...");
+  try {
+    const result = await apiGet("/api/workspace?limit=180");
+    renderWorkspaceEntries(result.data || []);
+  } catch (error) {
+    showToolError("ワークスペース", error);
+  }
+}
+
+function renderReview(result) {
+  artifactList.replaceChildren();
+  artifactList.classList.add("artifact-browser-list");
+  addPanelRow("ブランチ", result.branch || "unknown", null, "G");
+  addPanelRow(result.clean ? "変更なし" : `${result.files?.length || 0}件の変更`, result.clean ? "working tree clean" : "git status --short", null, "Δ");
+  for (const statLine of result.stat || []) addPanelRow(statLine.trim(), "", null, "Σ");
+  for (const file of result.files || []) {
+    const row = addPanelRow(file.path, file.status, () => {
+      appendToPrompt(`レビュー対象: ${file.path}`);
+      addStatus(`${file.path} をレビュー対象として入力に追加しました。`);
+    }, file.status || "MOD");
+    row.classList.add("review-row");
+  }
+}
+
+async function showReview() {
+  clearPanel("レビュー", "review");
+  addPanelRow("読み込み中...");
+  try {
+    const result = await apiGet("/api/review");
+    renderReview(result);
+  } catch (error) {
+    showToolError("レビュー", error);
+  }
+}
+
+function showSources() {
+  clearPanel("情報源", "sources");
+  addPanelRow("Web調査を入力へ追加", "外部確認が必要なターンで使う", () => {
+    appendToPrompt("Web調査を使って確認してください。");
+    addStatus("Web調査指示をチャット入力へ追加しました。");
+  }, "WEB");
+  addPanelRow("ローカルファイル", "Filesタブから @path を追加できます", showWorkspace, "FILE");
+  addPanelRow("差分レビュー", "Diffタブから変更ファイルを追加できます", showReview, "DIFF");
+}
+
 function startVoiceInput() {
   voiceButton.dataset.voiceState = "requested";
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1051,7 +1147,7 @@ function startVoiceInput() {
 }
 
 async function showStatus() {
-  clearPanel("バックグラウンド");
+  clearPanel("バックグラウンド", "status");
   try {
     const result = await apiGet("/api/status");
     addPanelRow("UI port", String(result.uiPort));
@@ -1068,6 +1164,7 @@ async function showStatus() {
 
 async function showArtifact(path) {
   showRightPanel();
+  setActivePanel("artifacts");
   artifactTitle.textContent = "アーティファクト";
   artifactList.classList.add("artifact-browser-list");
   activeArtifactPath = path;
@@ -1347,6 +1444,21 @@ modelMenu.addEventListener("click", (event) => {
     showModels();
   }
 });
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-message-action='copy']");
+  if (!button) return;
+  const entry = button.closest(".entry");
+  const body = entry?.querySelector(".entry-body");
+  const text = body?.markdownSource || body?.innerText || "";
+  if (!text.trim()) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    addStatus("メッセージをコピーしました。");
+  } catch {
+    promptInput.value = `${promptInput.value}${promptInput.value ? "\n" : ""}${text}`;
+    addStatus("クリップボードに書き込めないため、入力欄へ追加しました。");
+  }
+});
 document.addEventListener("click", (event) => {
   if (modelMenu.classList.contains("hidden")) return;
   if (modelMenu.contains(event.target) || modelButton.contains(event.target) || thinkingButton.contains(event.target)) return;
@@ -1387,10 +1499,10 @@ document.addEventListener("keydown", (event) => {
   }
 });
 statusButton.addEventListener("click", showStatus);
-webSearchButton.addEventListener("click", () => {
-  promptInput.value = `${promptInput.value}${promptInput.value ? "\n" : ""}Web調査を使って確認してください。`;
-  promptInput.focus();
-});
+artifactTab?.addEventListener("click", () => renderArtifactIndex(artifactItems));
+workspaceTab?.addEventListener("click", showWorkspace);
+reviewTab?.addEventListener("click", showReview);
+webSearchButton.addEventListener("click", showSources);
 for (const button of artifactButtons) {
   button.addEventListener("click", () => {
     for (const candidate of artifactButtons) candidate.classList.toggle("active", candidate === button);

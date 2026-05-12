@@ -4,7 +4,7 @@ const http = require("http");
 const net = require("net");
 const os = require("os");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const WebSocket = require("ws");
 const { bridgeKeyForRequest, shouldDisposeIdleBridge, shouldPromoteBridgeKey } = require("./bridge-state");
 const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
@@ -281,6 +281,102 @@ function discoverArtifacts() {
     name: path.basename(file),
     kind: isImagePath(file) ? "image" : /\.md(?:own)?$/i.test(file) ? "markdown" : "file",
   }));
+}
+
+const ignoredWorkspaceNames = new Set([
+  ".git",
+  ".claude",
+  ".codex-home",
+  ".uploads",
+  "node_modules",
+  "coverage",
+  "dist",
+]);
+
+function shouldSkipWorkspaceEntry(name) {
+  return ignoredWorkspaceNames.has(name) || /^\.codex-home/.test(name) || /^\.phone-token/.test(name) || /^\.env(?:\.|$)/.test(name);
+}
+
+function workspaceKind(filePath, stat) {
+  if (stat.isDirectory()) return "directory";
+  if (isImagePath(filePath)) return "image";
+  if (/\.md(?:own)?$/i.test(filePath)) return "markdown";
+  return "file";
+}
+
+function discoverWorkspaceEntries({ limit = 200, query = "" } = {}) {
+  const entries = [];
+  const normalizedQuery = query.trim().toLowerCase();
+  const maxEntries = Math.max(1, Math.min(Number(limit) || 200, 500));
+
+  function walk(dir, depth) {
+    if (entries.length >= maxEntries || depth > 5) return;
+    const children = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => !shouldSkipWorkspaceEntry(entry.name))
+      .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
+
+    for (const child of children) {
+      if (entries.length >= maxEntries) return;
+      const fullPath = path.join(dir, child.name);
+      let stat;
+      try {
+        stat = fs.statSync(fullPath);
+      } catch {
+        continue;
+      }
+      if (!stat.isDirectory() && !stat.isFile()) continue;
+      const relative = path.relative(root, fullPath);
+      if (normalizedQuery && !relative.toLowerCase().includes(normalizedQuery)) {
+        if (stat.isDirectory()) walk(fullPath, depth + 1);
+        continue;
+      }
+      entries.push({
+        path: relative,
+        name: child.name,
+        type: stat.isDirectory() ? "directory" : "file",
+        kind: workspaceKind(fullPath, stat),
+        size: stat.isFile() ? stat.size : null,
+      });
+      if (stat.isDirectory()) walk(fullPath, depth + 1);
+    }
+  }
+
+  walk(root, 0);
+  return entries;
+}
+
+function runGit(args) {
+  const result = spawnSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 5000,
+    maxBuffer: 512 * 1024,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error((result.stderr || result.stdout || `git ${args.join(" ")} failed`).trim());
+  return result.stdout.replace(/\s+$/g, "");
+}
+
+function reviewSummary() {
+  const branch = runGit(["branch", "--show-current"]);
+  const statusText = runGit(["status", "--short"]);
+  const statText = runGit(["diff", "--stat", "--"]);
+  const files = statusText
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const status = line.slice(0, 2).trim() || "modified";
+      const rawPath = line.slice(3).trim();
+      const filePath = rawPath.includes(" -> ") ? rawPath.split(" -> ").pop() : rawPath;
+      return { status, path: filePath };
+    });
+  return {
+    branch,
+    clean: files.length === 0,
+    files,
+    stat: statText.split(/\r?\n/).filter(Boolean).slice(0, 20),
+  };
 }
 
 function readAutomations() {
@@ -845,6 +941,29 @@ async function main() {
     if (url.pathname === "/api/artifacts") {
       if (!requireToken(url, phoneToken, res)) return;
       sendJson(res, 200, { data: discoverArtifacts() });
+      return;
+    }
+    if (url.pathname === "/api/workspace") {
+      if (!requireToken(url, phoneToken, res)) return;
+      try {
+        sendJson(res, 200, {
+          data: discoverWorkspaceEntries({
+            limit: Number(url.searchParams.get("limit") || 200),
+            query: url.searchParams.get("q") || "",
+          }),
+        });
+      } catch (error) {
+        sendJson(res, 500, { error: error.message });
+      }
+      return;
+    }
+    if (url.pathname === "/api/review") {
+      if (!requireToken(url, phoneToken, res)) return;
+      try {
+        sendJson(res, 200, reviewSummary());
+      } catch (error) {
+        sendJson(res, 500, { error: error.message });
+      }
       return;
     }
     if (url.pathname === "/api/uploaded") {

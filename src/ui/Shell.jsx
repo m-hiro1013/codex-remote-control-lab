@@ -5,8 +5,9 @@ import {
   Brain,
   ChevronLeft,
   ChevronRight,
-  Circle,
   FileText,
+  FolderOpen,
+  GitBranch,
   Globe2,
   Mic,
   MoreHorizontal,
@@ -185,13 +186,30 @@ function Conversation() {
   );
 }
 
+function PanelTab({ id, panel, icon, label }) {
+  const Icon = icon;
+  return (
+    <button type="button" className="panel-tab" id={id} data-panel-tab={panel} aria-label={label} title={label} aria-pressed={panel === "artifacts" ? "true" : "false"}>
+      <Icon size={14} strokeWidth={1.9} aria-hidden="true" />
+      <span className="sr-only">{label}</span>
+    </button>
+  );
+}
+
 function ArtifactPanel() {
   return (
-    <aside className="artifact-panel" id="artifactPanel" aria-label="アーティファクト">
+    <aside className="artifact-panel" id="artifactPanel" aria-label="右パネル">
       <section className="panel-card primary-panel">
         <div className="panel-title">
           <span id="artifactTitle">アーティファクト</span>
-          <button type="button" className="panel-close" id="closePanelButton" title="閉じる" aria-label="アーティファクトを閉じる"><X size={15} strokeWidth={2} /></button>
+          <button type="button" className="panel-close" id="closePanelButton" title="閉じる" aria-label="右パネルを閉じる"><X size={15} strokeWidth={2} /></button>
+        </div>
+        <div className="panel-tabs" role="toolbar" aria-label="右パネルを切り替え">
+          <PanelTab id="artifactTab" panel="artifacts" icon={FileText} label="成果物" />
+          <PanelTab id="workspaceTab" panel="workspace" icon={FolderOpen} label="Files" />
+          <PanelTab id="reviewTab" panel="review" icon={GitBranch} label="Diff" />
+          <PanelTab id="statusButton" panel="status" icon={TerminalSquare} label="Run" />
+          <PanelTab id="webSearchButton" panel="sources" icon={Globe2} label="Web" />
         </div>
         <div id="artifactList">
           {artifacts.map((name) => (
@@ -201,19 +219,6 @@ function ArtifactPanel() {
           ))}
         </div>
         <div id="artifactPreview" className="artifact-preview hidden" />
-      </section>
-      <section className="panel-card">
-        <div className="panel-title">
-          <span>バックグラウンド ターミナル</span>
-          <Circle size={8} fill="currentColor" strokeWidth={0} />
-        </div>
-        <div id="terminalList">
-          <button type="button" className="terminal-row" id="statusButton"><TerminalSquare size={15} strokeWidth={1.9} /><span>npm run phone</span></button>
-        </div>
-      </section>
-      <section className="panel-card">
-        <div className="panel-title">情報源</div>
-        <button type="button" className="source-row" id="webSearchButton"><Globe2 size={15} strokeWidth={1.9} /><span>ウェブ検索</span></button>
       </section>
     </aside>
   );

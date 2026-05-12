@@ -1240,6 +1240,15 @@ textarea::placeholder {
   color: color-mix(in srgb, var(--muted) 78%, transparent);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 .composer-footer {
   display: flex;
   align-items: center;
@@ -1452,6 +1461,40 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
+.panel-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  margin: -2px 0 10px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--compact-radius);
+  background: color-mix(in srgb, var(--soft) 62%, transparent);
+}
+
+.panel-tab {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 28px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.panel-tab:hover,
+.panel-tab.active {
+  background: var(--card);
+  color: var(--text);
+}
+
+.panel-tab.active {
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 9%, transparent);
+}
+
 .panel-close {
   flex: 0 0 auto;
   display: grid;
@@ -1540,6 +1583,32 @@ textarea::placeholder {
 
 .artifact-row:hover {
   background: var(--soft);
+}
+
+.artifact-row:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.artifact-row.workspace-row,
+.artifact-row.review-row {
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+}
+
+.row-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.row-actions span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: var(--card);
 }
 
 .artifact-row.active {
