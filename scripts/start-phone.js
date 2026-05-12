@@ -4,7 +4,7 @@ const http = require("http");
 const net = require("net");
 const os = require("os");
 const path = require("path");
-const { spawn, spawnSync } = require("child_process");
+const { spawn } = require("child_process");
 const WebSocket = require("ws");
 const { bridgeKeyForRequest, shouldDisposeIdleBridge, shouldPromoteBridgeKey } = require("./bridge-state");
 const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
@@ -47,7 +47,7 @@ const codexPort = Number(process.env.CODEX_APP_SERVER_PORT || 45213);
 const codexSocketPath = process.env.CODEX_APP_SERVER_SOCK || "";
 const codexUrl = process.env.CODEX_APP_SERVER_URL || (codexSocketPath ? "ws://codex-app-server/rpc" : `ws://127.0.0.1:${codexPort}`);
 const shouldStartCodexServer = !process.env.CODEX_APP_SERVER_URL && !codexSocketPath;
-const workdir = process.env.CODEX_WORKDIR || root;
+const workdir = path.resolve(process.env.CODEX_WORKDIR || root);
 const model = process.env.CODEX_MODEL || "gpt-5.4";
 const historySyncEnabled = isHistorySyncEnabled(process.env);
 const debugNoToken = /^(1|true|yes|on)$/i.test(process.env.PHONE_DEBUG_NO_TOKEN || "");
@@ -251,11 +251,36 @@ function requireToken(url, phoneToken, res) {
   return false;
 }
 
-function safeRelativePath(input) {
+function safePathWithin(base, input) {
+  const resolvedBase = path.resolve(base);
   const raw = String(input || "");
-  const target = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(root, raw.replace(/^[/\\]+/, ""));
-  if (!target.startsWith(`${root}${path.sep}`) && target !== root) return null;
+  const clean = raw.replace(/^[/\\]+/, "");
+  const target = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(resolvedBase, clean);
+  if (!target.startsWith(`${resolvedBase}${path.sep}`) && target !== resolvedBase) return null;
   return target;
+}
+
+function safeRelativePath(input) {
+  return safePathWithin(root, input);
+}
+
+function safeWorkdirPath(input) {
+  return safePathWithin(workdir, input);
+}
+
+function safeOpenPath(input) {
+  const workspacePath = safeWorkdirPath(input);
+  if (workspacePath) {
+    try {
+      if (fs.statSync(workspacePath).isFile()) return workspacePath;
+    } catch {}
+  }
+  return safeRelativePath(input);
+}
+
+function relativeDisplayPath(filePath) {
+  const base = filePath.startsWith(`${workdir}${path.sep}`) || filePath === workdir ? workdir : root;
+  return path.relative(base, filePath);
 }
 
 function safeUploadPath(input) {
@@ -317,16 +342,16 @@ function artifactKindForPath(filePath) {
   return "file";
 }
 
-function discoverWorkspaceEntries({ limit = 200, query = "" } = {}) {
+async function discoverWorkspaceEntries({ limit = 200, query = "" } = {}) {
   const entries = [];
   const normalizedQuery = query.trim().toLowerCase();
   const maxEntries = Math.max(1, Math.min(Number(limit) || 200, 500));
 
-  function walk(dir, depth) {
+  async function walk(dir, depth) {
     if (entries.length >= maxEntries || depth > 5) return;
     let children;
     try {
-      children = fs.readdirSync(dir, { withFileTypes: true });
+      children = await fs.promises.readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
@@ -339,14 +364,14 @@ function discoverWorkspaceEntries({ limit = 200, query = "" } = {}) {
       const fullPath = path.join(dir, child.name);
       let stat;
       try {
-        stat = fs.statSync(fullPath);
+        stat = await fs.promises.stat(fullPath);
       } catch {
         continue;
       }
       if (!stat.isDirectory() && !stat.isFile()) continue;
-      const relative = path.relative(root, fullPath);
+      const relative = path.relative(workdir, fullPath);
       if (normalizedQuery && !relative.toLowerCase().includes(normalizedQuery)) {
-        if (stat.isDirectory()) walk(fullPath, depth + 1);
+        if (stat.isDirectory()) await walk(fullPath, depth + 1);
         continue;
       }
       entries.push({
@@ -356,24 +381,48 @@ function discoverWorkspaceEntries({ limit = 200, query = "" } = {}) {
         kind: workspaceKind(fullPath, stat),
         size: stat.isFile() ? stat.size : null,
       });
-      if (stat.isDirectory()) walk(fullPath, depth + 1);
+      if (stat.isDirectory()) await walk(fullPath, depth + 1);
     }
   }
 
-  walk(root, 0);
+  await walk(workdir, 0);
   return entries;
 }
 
 function runGit(args) {
-  const result = spawnSync("git", args, {
-    cwd: workdir,
-    encoding: "utf8",
-    timeout: 5000,
-    maxBuffer: 512 * 1024,
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, {
+      cwd: workdir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(`git ${args.join(" ")} timed out`));
+    }, 5000);
+
+    child.stdout.on("data", (data) => {
+      stdout += data;
+      if (stdout.length > 512 * 1024) child.kill("SIGTERM");
+    });
+    child.stderr.on("data", (data) => {
+      stderr += data;
+      if (stderr.length > 512 * 1024) child.kill("SIGTERM");
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        reject(new Error((stderr || stdout || `git ${args.join(" ")} failed`).trim()));
+        return;
+      }
+      resolve(stdout.replace(/\s+$/g, ""));
+    });
   });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error((result.stderr || result.stdout || `git ${args.join(" ")} failed`).trim());
-  return result.stdout.replace(/\s+$/g, "");
 }
 
 function shouldSkipReviewPath(filePath) {
@@ -416,18 +465,37 @@ function parseNumstat(numstatText) {
   );
 }
 
-function decorateReviewFiles(files) {
-  const decorated = files
+function parseStatusPorcelain(statusText) {
+  const records = String(statusText || "").split("\0").filter(Boolean);
+  const files = [];
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i];
+    const status = record.slice(0, 2).trim() || "modified";
+    const filePath = record.slice(3);
+    if (!filePath) continue;
+    files.push({ status, path: filePath });
+    if (/[RC]/.test(status) && i + 1 < records.length) i += 1;
+  }
+  return files;
+}
+
+async function decorateReviewFiles(files) {
+  const decorated = await Promise.all(files
     .filter((file) => !shouldSkipReviewPath(file.path))
-    .map((file) => {
-      const absolutePath = safeRelativePath(file.path);
-      const openable = Boolean(absolutePath && fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile());
+    .map(async (file) => {
+      const absolutePath = safeWorkdirPath(file.path);
+      let openable = false;
+      try {
+        openable = Boolean(absolutePath && (await fs.promises.stat(absolutePath)).isFile());
+      } catch {
+        openable = false;
+      }
       return {
         ...file,
         kind: openable ? artifactKindForPath(absolutePath) : "file",
         openable,
       };
-    });
+    }));
   const totals = decorated.reduce(
     (sum, file) => ({
       additions: sum.additions + (file.additions || 0),
@@ -440,16 +508,12 @@ function decorateReviewFiles(files) {
 
 function workingTreeReviewFiles(statusText, numstatText) {
   const numstat = parseNumstat(numstatText);
-  return statusText
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      const status = line.slice(0, 2).trim() || "modified";
-      const rawPath = line.slice(3).trim();
-      const filePath = parseGitPathName(rawPath.includes(" -> ") ? rawPath.split(" -> ").pop() : rawPath);
+  return parseStatusPorcelain(statusText)
+    .map((file) => {
+      const filePath = parseGitPathName(file.path);
       const stats = numstat.get(filePath) || { additions: 0, deletions: 0 };
       return {
-        status,
+        status: file.status,
         path: filePath,
         additions: stats.additions,
         deletions: stats.deletions,
@@ -457,9 +521,9 @@ function workingTreeReviewFiles(statusText, numstatText) {
     });
 }
 
-function lastCommitReviewFiles() {
-  const numstat = parseNumstat(runGit(["show", "--numstat", "--format=", "--no-renames", "HEAD"]));
-  const names = runGit(["show", "--name-status", "--format=", "--no-renames", "HEAD"])
+async function lastCommitReviewFiles() {
+  const numstat = parseNumstat(await runGit(["show", "--numstat", "--format=", "--no-renames", "HEAD"]));
+  const names = (await runGit(["show", "--name-status", "--format=", "--no-renames", "HEAD"]))
     .split(/\r?\n/)
     .filter(Boolean);
   return names.map((line) => {
@@ -475,12 +539,15 @@ function lastCommitReviewFiles() {
   });
 }
 
-function reviewSummary() {
-  const branch = runGit(["branch", "--show-current"]);
-  const statusText = runGit(["status", "--short"]);
-  const statText = runGit(["diff", "HEAD", "--stat", "--"]);
-  const working = decorateReviewFiles(workingTreeReviewFiles(statusText, runGit(["diff", "HEAD", "--numstat", "--"])));
-  const fallback = working.files.length ? null : decorateReviewFiles(lastCommitReviewFiles());
+async function reviewSummary() {
+  const [branch, statusText, statText, numstatText] = await Promise.all([
+    runGit(["branch", "--show-current"]),
+    runGit(["status", "--porcelain=v1", "-z"]),
+    runGit(["diff", "HEAD", "--stat", "--"]),
+    runGit(["diff", "HEAD", "--numstat", "--"]),
+  ]);
+  const working = await decorateReviewFiles(workingTreeReviewFiles(statusText, numstatText));
+  const fallback = working.files.length ? null : await decorateReviewFiles(await lastCommitReviewFiles());
   const source = fallback ? "latest commit" : "working tree";
   const files = fallback?.files || working.files;
   const totals = fallback?.totals || working.totals;
@@ -1072,7 +1139,7 @@ async function main() {
       if (!requireToken(url, phoneToken, res)) return;
       try {
         sendJson(res, 200, {
-          data: discoverWorkspaceEntries({
+          data: await discoverWorkspaceEntries({
             limit: Number(url.searchParams.get("limit") || 200),
             query: url.searchParams.get("q") || "",
           }),
@@ -1085,7 +1152,7 @@ async function main() {
     if (url.pathname === "/api/review") {
       if (!requireToken(url, phoneToken, res)) return;
       try {
-        sendJson(res, 200, reviewSummary());
+        sendJson(res, 200, await reviewSummary());
       } catch (error) {
         sendJson(res, 500, { error: error.message });
       }
@@ -1104,7 +1171,7 @@ async function main() {
     }
     if (url.pathname === "/api/file/raw") {
       if (!requireToken(url, phoneToken, res)) return;
-      const target = safeRelativePath(url.searchParams.get("path"));
+      const target = safeOpenPath(url.searchParams.get("path"));
       if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile() || !isImagePath(target)) {
         sendJson(res, 404, { error: "image not found" });
         return;
@@ -1115,22 +1182,22 @@ async function main() {
     }
     if (url.pathname === "/api/file") {
       if (!requireToken(url, phoneToken, res)) return;
-      const target = safeRelativePath(url.searchParams.get("path"));
+      const target = safeOpenPath(url.searchParams.get("path"));
       if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
         sendJson(res, 404, { error: "file not found" });
         return;
       }
       if (isImagePath(target)) {
         sendJson(res, 200, {
-          path: path.relative(root, target),
+          path: relativeDisplayPath(target),
           kind: "image",
           mimeType: mimeForPath(target),
-          imageUrl: `/api/file/raw?path=${encodeURIComponent(path.relative(root, target))}`,
+          imageUrl: `/api/file/raw?path=${encodeURIComponent(relativeDisplayPath(target))}`,
         });
         return;
       }
       sendJson(res, 200, {
-        path: path.relative(root, target),
+        path: relativeDisplayPath(target),
         kind: /\.md(?:own)?$/i.test(target) ? "markdown" : "text",
         text: fs.readFileSync(target, "utf8").slice(0, 80_000),
       });
@@ -1190,7 +1257,21 @@ async function main() {
   });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+} else {
+  module.exports = {
+    decorateReviewFiles,
+    discoverWorkspaceEntries,
+    relativeDisplayPath,
+    reviewSummary,
+    runGit,
+    safeOpenPath,
+    safePathWithin,
+    safeRelativePath,
+    safeWorkdirPath,
+  };
+}
