@@ -304,6 +304,12 @@ function workspaceKind(filePath, stat) {
   return "file";
 }
 
+function artifactKindForPath(filePath) {
+  if (isImagePath(filePath)) return "image";
+  if (/\.md(?:own)?$/i.test(filePath)) return "markdown";
+  return "file";
+}
+
 function discoverWorkspaceEntries({ limit = 200, query = "" } = {}) {
   const entries = [];
   const normalizedQuery = query.trim().toLowerCase();
@@ -363,10 +369,39 @@ function runGit(args) {
   return result.stdout.replace(/\s+$/g, "");
 }
 
+function shouldSkipReviewPath(filePath) {
+  const clean = String(filePath || "").replace(/^[/\\]+/, "");
+  return (
+    clean === ".claude" ||
+    clean.startsWith(".claude/") ||
+    clean === ".phone-token" ||
+    clean.startsWith(".codex-home") ||
+    clean.startsWith(".uploads/") ||
+    clean.startsWith("node_modules/")
+  );
+}
+
 function reviewSummary() {
   const branch = runGit(["branch", "--show-current"]);
   const statusText = runGit(["status", "--short"]);
   const statText = runGit(["diff", "--stat", "--"]);
+  const numstatText = runGit(["diff", "--numstat", "--"]);
+  const numstat = new Map(
+    numstatText
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        const [added, deleted, ...rest] = line.split(/\t/);
+        const filePath = rest.join("\t");
+        return [
+          filePath.includes(" => ") ? filePath.split(" => ").pop().replace(/[{}]/g, "") : filePath,
+          {
+            additions: Number(added) || 0,
+            deletions: Number(deleted) || 0,
+          },
+        ];
+      }),
+  );
   const files = statusText
     .split(/\r?\n/)
     .filter(Boolean)
@@ -374,12 +409,30 @@ function reviewSummary() {
       const status = line.slice(0, 2).trim() || "modified";
       const rawPath = line.slice(3).trim();
       const filePath = rawPath.includes(" -> ") ? rawPath.split(" -> ").pop() : rawPath;
-      return { status, path: filePath };
-    });
+      const absolutePath = safeRelativePath(filePath);
+      const stats = numstat.get(filePath) || { additions: 0, deletions: 0 };
+      return {
+        status,
+        path: filePath,
+        kind: absolutePath && fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile() ? artifactKindForPath(absolutePath) : "file",
+        additions: stats.additions,
+        deletions: stats.deletions,
+        openable: Boolean(absolutePath && fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile()),
+      };
+    })
+    .filter((file) => !shouldSkipReviewPath(file.path));
+  const totals = files.reduce(
+    (sum, file) => ({
+      additions: sum.additions + (file.additions || 0),
+      deletions: sum.deletions + (file.deletions || 0),
+    }),
+    { additions: 0, deletions: 0 },
+  );
   return {
     branch,
     clean: files.length === 0,
     files,
+    totals,
     stat: statText.split(/\r?\n/).filter(Boolean).slice(0, 20),
   };
 }

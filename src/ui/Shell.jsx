@@ -82,6 +82,7 @@ function Sidebar() {
           <span>設定</span>
         </button>
       </aside>
+      <div className="sidebar-resize-handle left-resize-handle" id="leftResizeHandle" role="separator" aria-orientation="vertical" aria-label="左サイドバーの幅を調整" tabIndex="0" />
     </>
   );
 }
@@ -197,6 +198,7 @@ function PanelTab({ id, panel, icon, label }) {
 function ArtifactPanel() {
   return (
     <aside className="artifact-panel" id="artifactPanel" aria-label="右パネル">
+      <div className="sidebar-resize-handle right-resize-handle" id="rightResizeHandle" role="separator" aria-orientation="vertical" aria-label="右サイドバーの幅を調整" tabIndex="0" />
       <section className="panel-card primary-panel">
         <div className="panel-title">
           <span id="artifactTitle">アーティファクト</span>
