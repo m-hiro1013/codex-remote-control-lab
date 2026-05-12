@@ -41,6 +41,8 @@ const approval = document.querySelector("#approval");
 const approvalText = document.querySelector("#approvalText");
 const approveButton = document.querySelector("#approve");
 const declineButton = document.querySelector("#decline");
+const leftResizeHandle = document.querySelector("#leftResizeHandle");
+const rightResizeHandle = document.querySelector("#rightResizeHandle");
 
 const params = new URLSearchParams(location.search);
 const token = params.get("token") || localStorage.getItem("codexPhoneToken") || "";
@@ -83,6 +85,12 @@ let accessMode = {
   sandboxMode: "danger-full-access",
 };
 let pendingFiles = [];
+let lastReviewDigestSignature = "";
+
+const panelWidthConfig = {
+  left: { min: 188, max: 360, fallback: 232, storageKey: "codexLeftSidebarWidth", cssVar: "--thread-width" },
+  right: { min: 280, max: 760, fallback: 420, storageKey: "codexRightSidebarWidth", cssVar: "--dock-width" },
+};
 
 const runStateText = {
   connecting: "接続中",
@@ -559,6 +567,118 @@ function renderImageGallery(images = []) {
   return gallery;
 }
 
+function fileKindLabel(kind) {
+  if (kind === "markdown") return "ドキュメント・MD";
+  if (kind === "image") return "画像";
+  return "ファイル";
+}
+
+function diffStatLabel(file) {
+  const additions = Number(file.additions || 0);
+  const deletions = Number(file.deletions || 0);
+  return `<span class="diff-add">+${additions}</span><span class="diff-del">-${deletions}</span>`;
+}
+
+function shouldDisplayReviewFile(file) {
+  return Boolean(file?.path && (file.openable || Number(file.additions || 0) || Number(file.deletions || 0)));
+}
+
+function renderReviewDigest(result) {
+  const files = (result?.files || []).filter(shouldDisplayReviewFile);
+  if (!result || result.clean || !files.length) return null;
+  const openableFiles = files.filter((file) => file.openable).slice(0, 6);
+  const totalFiles = files.length;
+  const totals =
+    result.totals && files.length === result.files?.length
+      ? result.totals
+      : files.reduce(
+          (sum, file) => ({
+            additions: sum.additions + Number(file.additions || 0),
+            deletions: sum.deletions + Number(file.deletions || 0),
+          }),
+          { additions: 0, deletions: 0 },
+        );
+  const sourceLabel = result.source === "latest commit" ? "最新commit" : "作業ツリー";
+  const wrap = document.createElement("section");
+  wrap.className = "review-digest";
+  wrap.innerHTML = `
+    <details class="review-reference-toggle">
+      <summary>${totalFiles}件の変更ファイル・${sourceLabel}</summary>
+    </details>
+    <div class="artifact-card-list"></div>
+    <div class="diff-card">
+      <div class="diff-card-header">
+        <strong>${totalFiles}個のファイルが変更されました</strong>
+        <span>${diffStatLabel({ additions: totals.additions, deletions: totals.deletions })}</span>
+      </div>
+      <div class="diff-file-list"></div>
+    </div>
+  `;
+  const citation = wrap.querySelector(".review-reference-toggle");
+  citation.dataset.reviewDigest = "true";
+  const artifactListNode = wrap.querySelector(".artifact-card-list");
+  for (const file of openableFiles) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chat-artifact-card";
+    button.dataset.openArtifactPath = file.path;
+    button.innerHTML = `
+      <span class="chat-artifact-icon" aria-hidden="true">${file.kind === "image" ? "IMG" : "DOC"}</span>
+      <span class="chat-artifact-copy">
+        <strong>${escapeHtml(file.path.split(/[\\/]/).pop() || file.path)}</strong>
+        <small>${escapeHtml(fileKindLabel(file.kind))}</small>
+      </span>
+      <span class="chat-artifact-open">開く</span>
+    `;
+    artifactListNode.appendChild(button);
+  }
+  if (!openableFiles.length) artifactListNode.remove();
+
+  const diffList = wrap.querySelector(".diff-file-list");
+  for (const file of files.slice(0, 12)) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "diff-file-row";
+    if (file.openable) row.dataset.openArtifactPath = file.path;
+    row.innerHTML = `
+      <span class="diff-file-name">${escapeHtml(file.path)}</span>
+      <span class="diff-file-stat">${diffStatLabel(file)}</span>
+      <span class="diff-file-chevron" aria-hidden="true">⌄</span>
+    `;
+    diffList.appendChild(row);
+  }
+  return wrap;
+}
+
+async function appendReviewDigest() {
+  if (!token) return;
+  try {
+    const result = await apiGet("/api/review");
+    const signature = JSON.stringify({
+      branch: result.branch,
+      files: (result.files || []).map((file) => [file.status, file.path, file.additions, file.deletions]),
+    });
+    const existingDigests = Array.from(log.querySelectorAll(".review-digest-entry"));
+    if (signature === lastReviewDigestSignature && existingDigests.length) return;
+    lastReviewDigestSignature = signature;
+    const digest = renderReviewDigest(result);
+    for (const existing of existingDigests) existing.remove();
+    if (!digest) return;
+    const el = document.createElement("article");
+    el.className = "entry assistant review-digest-entry";
+    const body = document.createElement("div");
+    body.className = "entry-body";
+    body.appendChild(digest);
+    const tools = document.createElement("div");
+    tools.className = "entry-tools";
+    el.append(body, tools);
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+  } catch (error) {
+    addStatus(`差分サマリーを更新できませんでした: ${error.message}`);
+  }
+}
+
 function summarizeStatus(items) {
   if (items.some((item) => item.includes("音声入力"))) return "音声入力";
   const reads = items.filter((item) => /^Read\s+/i.test(item)).length;
@@ -681,6 +801,7 @@ function renderHistoryIfChanged(history = []) {
   if (signature === lastHistorySignature) return false;
   lastHistorySignature = signature;
   renderHistory(history);
+  appendReviewDigest();
   return true;
 }
 
@@ -1098,10 +1219,15 @@ function renderReview(result) {
   for (const statLine of result.stat || []) addPanelRow(statLine.trim(), "", null, "Σ");
   for (const file of result.files || []) {
     const row = addPanelRow(file.path, file.status, () => {
+      if (file.openable) {
+        showArtifact(file.path);
+        return;
+      }
       appendToPrompt(`レビュー対象: ${file.path}`);
       addStatus(`${file.path} をレビュー対象として入力に追加しました。`);
     }, file.status || "MOD");
     row.classList.add("review-row");
+    row.innerHTML += `<span class="row-diff-stat">${diffStatLabel(file)}</span>`;
   }
 }
 
@@ -1256,6 +1382,78 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function setPanelWidth(kind, width) {
+  const config = panelWidthConfig[kind];
+  if (!config) return width;
+  const next = clampNumber(width, config.min, config.max);
+  const rootStyle = document.documentElement.style;
+  const handle = kind === "left" ? leftResizeHandle : rightResizeHandle;
+  rootStyle.setProperty(config.cssVar, `${next}px`);
+  localStorage.setItem(config.storageKey, String(next));
+  handle?.setAttribute("aria-valuenow", String(next));
+  return next;
+}
+
+function loadPanelWidths() {
+  for (const kind of ["left", "right"]) {
+    const config = panelWidthConfig[kind];
+    const handle = kind === "left" ? leftResizeHandle : rightResizeHandle;
+    const savedWidth = Number(localStorage.getItem(config.storageKey));
+    if (savedWidth) setPanelWidth(kind, savedWidth);
+    handle?.setAttribute("aria-valuemin", String(config.min));
+    handle?.setAttribute("aria-valuemax", String(config.max));
+  }
+}
+
+function bindResizeHandle(handle, kind) {
+  if (!handle) return;
+  let drag = null;
+  const currentWidth = () => {
+    const value =
+      kind === "left"
+        ? getComputedStyle(document.documentElement).getPropertyValue(panelWidthConfig.left.cssVar)
+        : getComputedStyle(document.documentElement).getPropertyValue(panelWidthConfig.right.cssVar);
+    return Number.parseFloat(value) || panelWidthConfig[kind].fallback;
+  };
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (window.matchMedia("(max-width: 820px)").matches) return;
+    event.preventDefault();
+    drag = { pointerId: event.pointerId, startX: event.clientX, startWidth: currentWidth() };
+    handle.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing-sidebar");
+  });
+
+  handle.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const delta = event.clientX - drag.startX;
+    setPanelWidth(kind, kind === "left" ? drag.startWidth + delta : drag.startWidth - delta);
+  });
+
+  const finish = (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    drag = null;
+    document.body.classList.remove("resizing-sidebar");
+  };
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+  handle.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 32 : 12;
+    if (event.key === "Home") setPanelWidth(kind, panelWidthConfig[kind].min);
+    else if (event.key === "End") setPanelWidth(kind, panelWidthConfig[kind].max);
+    else {
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      setPanelWidth(kind, currentWidth() + (kind === "left" ? direction : -direction) * step);
+    }
+  });
+}
+
 function connect() {
   if (!token) {
     addEntry("error", "URLに token がありません。Mac側に表示されたURLをそのまま開いてください。");
@@ -1319,6 +1517,7 @@ function connect() {
       setRunState("done", "完了しました");
       loadThreads();
       refreshSelectedThread();
+      appendReviewDigest();
       return;
     }
     if (msg.type === "error") {
@@ -1451,6 +1650,12 @@ modelMenu.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("click", async (event) => {
+  const artifactOpen = event.target.closest("[data-open-artifact-path]");
+  if (artifactOpen) {
+    showArtifact(artifactOpen.dataset.openArtifactPath);
+    return;
+  }
+
   const button = event.target.closest("[data-message-action='copy']");
   if (!button) return;
   const entry = button.closest(".entry");
@@ -1526,6 +1731,9 @@ setAccessButtonLabel();
 updateModelButton();
 modelButton.setAttribute("aria-haspopup", "menu");
 modelButton.setAttribute("aria-expanded", "false");
+loadPanelWidths();
+bindResizeHandle(leftResizeHandle, "left");
+bindResizeHandle(rightResizeHandle, "right");
 syncSidebarState();
 syncRightPanelState();
 loadArtifacts();

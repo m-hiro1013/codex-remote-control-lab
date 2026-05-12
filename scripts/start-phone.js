@@ -304,6 +304,12 @@ function workspaceKind(filePath, stat) {
   return "file";
 }
 
+function artifactKindForPath(filePath) {
+  if (isImagePath(filePath)) return "image";
+  if (/\.md(?:own)?$/i.test(filePath)) return "markdown";
+  return "file";
+}
+
 function discoverWorkspaceEntries({ limit = 200, query = "" } = {}) {
   const entries = [];
   const normalizedQuery = query.trim().toLowerCase();
@@ -363,23 +369,120 @@ function runGit(args) {
   return result.stdout.replace(/\s+$/g, "");
 }
 
-function reviewSummary() {
-  const branch = runGit(["branch", "--show-current"]);
-  const statusText = runGit(["status", "--short"]);
-  const statText = runGit(["diff", "--stat", "--"]);
-  const files = statusText
+function shouldSkipReviewPath(filePath) {
+  const clean = String(filePath || "").replace(/^[/\\]+/, "").replace(/[\\/]+$/, "");
+  return (
+    clean === ".claude" ||
+    clean.startsWith(".claude/") ||
+    clean === ".phone-token" ||
+    clean.startsWith(".codex-home") ||
+    clean.startsWith(".uploads/") ||
+    clean.startsWith("node_modules/")
+  );
+}
+
+function parseGitPathName(rawPath) {
+  let filePath = String(rawPath || "");
+  if (!filePath.includes(" => ")) return filePath;
+  if (/\{[^}]*\s=>\s[^}]*\}/.test(filePath)) {
+    return filePath.replace(/\{[^}]*\s=>\s([^}]*)\}/g, "$1");
+  }
+  return filePath.split(" => ").pop().replace(/[{}]/g, "");
+}
+
+function parseNumstat(numstatText) {
+  return new Map(
+    numstatText
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        const [added, deleted, ...rest] = line.split(/\t/);
+        const filePath = parseGitPathName(rest.join("\t"));
+        return [
+          filePath,
+          {
+            additions: Number(added) || 0,
+            deletions: Number(deleted) || 0,
+          },
+        ];
+      }),
+  );
+}
+
+function decorateReviewFiles(files) {
+  const decorated = files
+    .filter((file) => !shouldSkipReviewPath(file.path))
+    .map((file) => {
+      const absolutePath = safeRelativePath(file.path);
+      const openable = Boolean(absolutePath && fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile());
+      return {
+        ...file,
+        kind: openable ? artifactKindForPath(absolutePath) : "file",
+        openable,
+      };
+    });
+  const totals = decorated.reduce(
+    (sum, file) => ({
+      additions: sum.additions + (file.additions || 0),
+      deletions: sum.deletions + (file.deletions || 0),
+    }),
+    { additions: 0, deletions: 0 },
+  );
+  return { files: decorated, totals };
+}
+
+function workingTreeReviewFiles(statusText, numstatText) {
+  const numstat = parseNumstat(numstatText);
+  return statusText
     .split(/\r?\n/)
     .filter(Boolean)
     .map((line) => {
       const status = line.slice(0, 2).trim() || "modified";
       const rawPath = line.slice(3).trim();
-      const filePath = rawPath.includes(" -> ") ? rawPath.split(" -> ").pop() : rawPath;
-      return { status, path: filePath };
+      const filePath = parseGitPathName(rawPath.includes(" -> ") ? rawPath.split(" -> ").pop() : rawPath);
+      const stats = numstat.get(filePath) || { additions: 0, deletions: 0 };
+      return {
+        status,
+        path: filePath,
+        additions: stats.additions,
+        deletions: stats.deletions,
+      };
     });
+}
+
+function lastCommitReviewFiles() {
+  const numstat = parseNumstat(runGit(["show", "--numstat", "--format=", "--no-renames", "HEAD"]));
+  const names = runGit(["show", "--name-status", "--format=", "--no-renames", "HEAD"])
+    .split(/\r?\n/)
+    .filter(Boolean);
+  return names.map((line) => {
+    const [status, ...rest] = line.split(/\t/);
+    const filePath = rest.join("\t");
+    const stats = numstat.get(filePath) || { additions: 0, deletions: 0 };
+    return {
+      status,
+      path: filePath,
+      additions: stats.additions,
+      deletions: stats.deletions,
+    };
+  });
+}
+
+function reviewSummary() {
+  const branch = runGit(["branch", "--show-current"]);
+  const statusText = runGit(["status", "--short"]);
+  const statText = runGit(["diff", "HEAD", "--stat", "--"]);
+  const working = decorateReviewFiles(workingTreeReviewFiles(statusText, runGit(["diff", "HEAD", "--numstat", "--"])));
+  const fallback = working.files.length ? null : decorateReviewFiles(lastCommitReviewFiles());
+  const source = fallback ? "latest commit" : "working tree";
+  const files = fallback?.files || working.files;
+  const totals = fallback?.totals || working.totals;
   return {
     branch,
     clean: files.length === 0,
+    source,
     files,
+    totals,
     stat: statText.split(/\r?\n/).filter(Boolean).slice(0, 20),
   };
 }
