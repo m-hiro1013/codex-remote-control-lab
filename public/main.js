@@ -18,6 +18,7 @@ const fileInput = document.querySelector("#fileInput");
 const attachments = document.querySelector("#attachments");
 const mobileThreadsButton = document.querySelector("#mobileThreads");
 const sidebarScrim = document.querySelector("#sidebarScrim");
+const sidebar = document.querySelector("#threadSidebar");
 const artifactPanel = document.querySelector(".artifact-panel");
 const artifactButtons = document.querySelectorAll("[data-artifact]");
 const artifactTitle = document.querySelector("#artifactTitle");
@@ -169,6 +170,39 @@ function selectModel(model) {
   updateModelButton();
   closeModelMenu();
   addStatus(`モデルを ${model.toUpperCase()} に設定しました。次の送信から反映します。`);
+}
+
+function syncSidebarState({ focus = false } = {}) {
+  const open = document.body.classList.contains("show-sidebar");
+  mobileThreadsButton.setAttribute("aria-expanded", String(open));
+  sidebar?.setAttribute("aria-hidden", String(!open && window.matchMedia("(max-width: 820px)").matches));
+  if (open && focus) {
+    const target = sidebar?.querySelector("button, input, [href], [tabindex]:not([tabindex='-1'])");
+    target?.focus();
+  }
+}
+
+function openSidebar({ focus = false } = {}) {
+  document.body.classList.add("show-sidebar");
+  syncSidebarState({ focus });
+}
+
+function closeSidebar({ restoreFocus = false } = {}) {
+  const wasOpen = document.body.classList.contains("show-sidebar");
+  document.body.classList.remove("show-sidebar");
+  syncSidebarState();
+  if (restoreFocus && wasOpen) mobileThreadsButton.focus();
+}
+
+function syncRightPanelState({ focus = false } = {}) {
+  const open = !document.body.classList.contains("hide-artifacts") || document.body.classList.contains("show-panel");
+  menuButton.setAttribute("aria-pressed", String(open));
+  menuButton.setAttribute("aria-expanded", String(open));
+  artifactPanel?.setAttribute("aria-hidden", String(!open));
+  if (open && focus) {
+    const target = artifactPanel?.querySelector("button, input, textarea, [href], [tabindex]:not([tabindex='-1'])");
+    target?.focus();
+  }
 }
 
 function titleForThread(thread) {
@@ -765,19 +799,23 @@ function selectThread(threadId) {
   selectedThread = threadId;
   updateUrlThread();
   renderThreadList();
-  document.body.classList.remove("show-sidebar");
+  closeSidebar();
   connect();
 }
 
-function showRightPanel() {
+function showRightPanel({ focus = false } = {}) {
   document.body.classList.remove("hide-artifacts");
   document.body.classList.add("show-panel");
-  document.body.classList.remove("show-sidebar");
+  closeSidebar();
+  syncRightPanelState({ focus });
 }
 
-function closeRightPanel() {
+function closeRightPanel({ restoreFocus = false } = {}) {
+  const wasOpen = !document.body.classList.contains("hide-artifacts") || document.body.classList.contains("show-panel");
   document.body.classList.add("hide-artifacts");
   document.body.classList.remove("show-panel");
+  syncRightPanelState();
+  if (restoreFocus && wasOpen) menuButton.focus();
 }
 
 function clearPanel(title) {
@@ -1213,30 +1251,31 @@ searchButton.addEventListener("click", () => {
   threadSearch.classList.toggle("hidden");
   threadSearch.focus();
   renderThreadList();
-  document.body.classList.add("show-sidebar");
+  openSidebar();
 });
 threadSearch.addEventListener("input", renderThreadList);
 pluginsButton.addEventListener("click", showPlugins);
 automationsButton.addEventListener("click", showAutomations);
 settingsButton.addEventListener("click", showSettings);
-mobileThreadsButton.addEventListener("click", () => document.body.classList.toggle("show-sidebar"));
-sidebarScrim.addEventListener("click", () => document.body.classList.remove("show-sidebar"));
+mobileThreadsButton.addEventListener("click", () => {
+  if (document.body.classList.contains("show-sidebar")) closeSidebar({ restoreFocus: true });
+  else openSidebar({ focus: true });
+});
+sidebarScrim.addEventListener("click", () => closeSidebar({ restoreFocus: true }));
 connectButton.addEventListener("click", connect);
 menuButton.addEventListener("click", () => {
   const desktopPanelVisible =
     window.matchMedia("(min-width: 1101px)").matches && !document.body.classList.contains("hide-artifacts");
   const mobilePanelVisible = document.body.classList.contains("show-panel");
   if (desktopPanelVisible || mobilePanelVisible) {
-    closeRightPanel();
-    menuButton.setAttribute("aria-pressed", "false");
+    closeRightPanel({ restoreFocus: true });
     addStatus("右パネルを閉じました。");
   } else {
-    showRightPanel();
-    menuButton.setAttribute("aria-pressed", "true");
+    showRightPanel({ focus: window.matchMedia("(max-width: 1100px)").matches });
     addStatus("右パネルを開きました。");
   }
 });
-closePanelButton.addEventListener("click", closeRightPanel);
+closePanelButton.addEventListener("click", () => closeRightPanel({ restoreFocus: true }));
 artifactPreview.addEventListener("click", (event) => {
   if (event.target.closest("[data-preview-close]")) hideArtifactPreview();
 });
@@ -1284,9 +1323,38 @@ document.addEventListener("click", (event) => {
   closeModelMenu();
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape" || modelMenu.classList.contains("hidden")) return;
-  closeModelMenu();
-  modelButton.focus();
+  if (modelMenu.classList.contains("hidden")) return;
+  if (event.key === "Escape") {
+    closeModelMenu();
+    modelButton.focus();
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const rows = Array.from(modelMenu.querySelectorAll(".model-menu-row"));
+  const current = rows.indexOf(document.activeElement);
+  let next = current;
+  if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = rows.length - 1;
+  else if (event.key === "ArrowDown") next = current < rows.length - 1 ? current + 1 : 0;
+  else if (event.key === "ArrowUp") next = current > 0 ? current - 1 : rows.length - 1;
+  rows[next]?.focus();
+});
+document.addEventListener("click", (event) => {
+  if (!document.body.classList.contains("show-panel")) return;
+  if (window.matchMedia("(min-width: 1101px)").matches) return;
+  if (artifactPanel.contains(event.target) || menuButton.contains(event.target)) return;
+  closeRightPanel({ restoreFocus: true });
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (document.body.classList.contains("show-panel")) {
+    closeRightPanel({ restoreFocus: true });
+    return;
+  }
+  if (document.body.classList.contains("show-sidebar")) {
+    closeSidebar({ restoreFocus: true });
+  }
 });
 statusButton.addEventListener("click", showStatus);
 webSearchButton.addEventListener("click", () => {
@@ -1306,7 +1374,8 @@ modelButton.setAttribute("aria-haspopup", "menu");
 modelButton.setAttribute("aria-expanded", "false");
 thinkingButton.setAttribute("aria-haspopup", "menu");
 thinkingButton.setAttribute("aria-expanded", "false");
-menuButton.setAttribute("aria-pressed", window.matchMedia("(min-width: 1101px)").matches ? "true" : "false");
+syncSidebarState();
+syncRightPanelState();
 loadArtifacts();
 loadThreads().catch(() => {}).finally(connect);
 setInterval(() => loadThreads({ background: true }), 10_000);
