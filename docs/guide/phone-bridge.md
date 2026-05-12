@@ -21,6 +21,14 @@ Open the exact printed URL from a phone or another browser on the same network. 
 
 The printed URL includes `?token=...`. Keep that URL private. To stop the bridge, press `Ctrl+C` in the terminal that is running `npm run phone`. If the terminal is closed or the PC restarts, start it again with `npm run phone`.
 
+For localhost-only UI debugging, you can disable the token requirement explicitly:
+
+```bash
+PHONE_DEBUG_NO_TOKEN=1 npm run phone
+```
+
+This prints a tokenless `http://127.0.0.1:45214/` URL and binds the bridge to `127.0.0.1`. It is not for phones, LAN sharing, tunnels, or shared networks.
+
 ## Runtime Layout
 
 ```text
@@ -58,6 +66,7 @@ CODEX_APP_SERVER_SOCK=/Users/admin/.codex/app-server-control/app-server-control.
 CODEX_APP_SERVER_URL=ws://127.0.0.1:45213 npm run phone
 CODEX_HISTORY_SYNC=0 npm run phone
 PHONE_TOKEN=choose-your-own-token npm run phone
+PHONE_DEBUG_NO_TOKEN=1 npm run phone
 PHONE_NTFY_TOPIC=your-private-topic npm run phone
 PHONE_PUSHOVER_TOKEN=app-token PHONE_PUSHOVER_USER=user-key npm run phone
 PHONE_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... npm run phone

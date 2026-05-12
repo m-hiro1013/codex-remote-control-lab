@@ -48,6 +48,14 @@ http://192.168.11.8:45214/?token=...
 
 Open that exact URL from a phone connected to the same Wi-Fi/LAN.
 
+For localhost-only UI debugging without a token, run:
+
+```bash
+PHONE_DEBUG_NO_TOKEN=1 npm run phone
+```
+
+That debug mode binds the bridge to `127.0.0.1` and prints a URL without `?token=...`. Do not use it for LAN, tunnel, or shared-network access.
+
 ## 🧭 Architecture
 
 ```text
@@ -87,6 +95,7 @@ CODEX_APP_SERVER_SOCK=/Users/admin/.codex/app-server-control/app-server-control.
 CODEX_APP_SERVER_URL=ws://127.0.0.1:45213 npm run phone
 CODEX_HISTORY_SYNC=0 npm run phone
 PHONE_TOKEN=choose-your-own-token npm run phone
+PHONE_DEBUG_NO_TOKEN=1 npm run phone
 PHONE_NTFY_TOPIC=your-private-topic npm run phone
 PHONE_PUSHOVER_TOKEN=app-token PHONE_PUSHOVER_USER=user-key npm run phone
 PHONE_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... npm run phone
@@ -204,6 +213,7 @@ More screenshots are available in `docs/assets/` and through the artifact panel 
 - Keep the Codex app-server on `127.0.0.1`.
 - Do not bind an unauthenticated Codex app-server to a LAN or public interface.
 - Treat the printed `?token=...` URL like a local access key. Do not post it in public issues, chats, screenshots, or streams.
+- Use `PHONE_DEBUG_NO_TOKEN=1` only for localhost debugging; it binds to `127.0.0.1` and must not be exposed to LAN devices, tunnels, or shared networks.
 - Stop the bridge with `Ctrl+C`. If you close the terminal or restart the PC, run `npm run phone` again.
 - Use SSH forwarding, a VPN, or a mesh network for access outside a trusted LAN.
 - Do not expose the bridge through an unauthenticated public tunnel or raw port forward.

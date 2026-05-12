@@ -21,6 +21,14 @@ http://192.168.11.8:45214/?token=...
 
 表示された URL には `?token=...` が含まれます。この URL は private に扱ってください。bridge を止めるときは、`npm run phone` を実行している terminal で `Ctrl+C` を押します。terminal を閉じた場合や PC を再起動した場合は、もう一度 `npm run phone` を実行します。
 
+token なしで UI をローカルデバッグする場合は、明示的に次を指定します。
+
+```bash
+PHONE_DEBUG_NO_TOKEN=1 npm run phone
+```
+
+この場合は `http://127.0.0.1:45214/` のような token なし URL を表示し、bridge は `127.0.0.1` に bind されます。スマホ、LAN 共有、tunnel、shared network 用ではありません。
+
 ## 構成
 
 ```text
@@ -58,6 +66,7 @@ CODEX_APP_SERVER_SOCK=/Users/admin/.codex/app-server-control/app-server-control.
 CODEX_APP_SERVER_URL=ws://127.0.0.1:45213 npm run phone
 CODEX_HISTORY_SYNC=0 npm run phone
 PHONE_TOKEN=choose-your-own-token npm run phone
+PHONE_DEBUG_NO_TOKEN=1 npm run phone
 PHONE_NTFY_TOPIC=your-private-topic npm run phone
 PHONE_PUSHOVER_TOKEN=app-token PHONE_PUSHOVER_USER=user-key npm run phone
 PHONE_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... npm run phone
