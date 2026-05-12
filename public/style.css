@@ -45,7 +45,7 @@
   --surface-under: #e6e7df;
   --surface-raised: #fffffb;
   --focus: #2d7ff9;
-  --dock-width: 248px;
+  --dock-width: 420px;
   --thread-width: 232px;
   --message-width: 616px;
   --compact-radius: 8px;
@@ -899,7 +899,7 @@ p {
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(236px, clamp(236px, var(--dock-width), 44vw));
+  grid-template-columns: minmax(0, 1fr) minmax(280px, clamp(280px, var(--dock-width), 62vw));
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -2054,7 +2054,7 @@ textarea::placeholder {
 }
 
 .artifact-browser-list {
-  max-height: min(46vh, 420px);
+  max-height: min(28vh, 240px);
   overflow: auto;
   padding-right: 4px;
 }
@@ -2101,8 +2101,10 @@ textarea::placeholder {
 }
 
 .artifact-preview {
+  flex: 1 1 auto;
   min-width: 0;
-  max-height: 360px;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
   margin: 8px 0 0;
   overflow-wrap: anywhere;
@@ -2235,7 +2237,7 @@ textarea::placeholder {
 }
 
 .artifact-preview.image-artifact-preview {
-  max-height: 520px;
+  max-height: none;
 }
 
 .artifact-preview.image-artifact-preview .image-gallery {
@@ -2244,7 +2246,7 @@ textarea::placeholder {
 }
 
 .artifact-preview.image-artifact-preview .image-preview img {
-  max-height: 420px;
+  max-height: calc(100vh - 220px);
 }
 
 .theme-settings {
