@@ -87,6 +87,18 @@ async function mockApi(page, origin) {
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== origin || !url.pathname.startsWith("/api/")) return route.continue();
+    if (url.pathname === "/api/info") {
+      return route.fulfill({
+        json: {
+          tokenRequired: true,
+          authMode: "token",
+          historySyncEnabled: true,
+          uiPort: 45214,
+          codexUrl: "ws://127.0.0.1:45213",
+          workdir: root,
+        },
+      });
+    }
     if (url.pathname === "/api/threads") return route.fulfill({ json: { data: threads } });
     if (url.pathname === "/api/thread") return route.fulfill({ json: { threadId: "thread-ocdex-v020", history } });
     if (url.pathname === "/api/artifacts") return route.fulfill({ json: { data: artifacts } });
