@@ -18,12 +18,16 @@ const fileInput = document.querySelector("#fileInput");
 const attachments = document.querySelector("#attachments");
 const mobileThreadsButton = document.querySelector("#mobileThreads");
 const sidebarScrim = document.querySelector("#sidebarScrim");
+const sidebar = document.querySelector("#threadSidebar");
 const artifactPanel = document.querySelector(".artifact-panel");
 const artifactButtons = document.querySelectorAll("[data-artifact]");
 const artifactTitle = document.querySelector("#artifactTitle");
 const artifactList = document.querySelector("#artifactList");
 const artifactPreview = document.querySelector("#artifactPreview");
-const terminalList = document.querySelector("#terminalList");
+const artifactTab = document.querySelector("#artifactTab");
+const workspaceTab = document.querySelector("#workspaceTab");
+const reviewTab = document.querySelector("#reviewTab");
+const panelTabButtons = document.querySelectorAll("[data-panel-tab]");
 const statusButton = document.querySelector("#statusButton");
 const webSearchButton = document.querySelector("#webSearchButton");
 const runState = document.querySelector("#runState");
@@ -43,11 +47,17 @@ const params = new URLSearchParams(location.search);
 const token = params.get("token") || localStorage.getItem("codexPhoneToken") || "";
 let selectedThread = params.get("thread") || "";
 if (token) localStorage.setItem("codexPhoneToken", token);
+if (params.has("token") && window.history?.replaceState) {
+  const cleanUrl = new URL(location.href);
+  cleanUrl.searchParams.delete("token");
+  window.history.replaceState({}, document.title, cleanUrl);
+}
 
 const themeOptions = [
-  { id: "simple", name: "シンプル", detail: "今のCodex Desktop風" },
-  { id: "cyberpunk", name: "サイバーパンク", detail: "暗め / ネオンアクセント" },
-  { id: "botanical", name: "ボタニカル", detail: "葉色 / 紙のような柔らかさ" },
+  { id: "simple", name: "シンプル", detail: "静かなローカルコンソール" },
+  { id: "cyberpunk", name: "サイバーパンク", detail: "ネオンシアン + マゼンタ / 黒背景" },
+  { id: "botanical", name: "ボタニカル", detail: "グリーン / 温かみのあるクリーム" },
+  { id: "stigmata", name: "Stigmata", detail: "氷青 / 銀白 / 赤い販売機の残光" },
 ];
 let selectedTheme = localStorage.getItem("codexPhoneTheme") || "simple";
 
@@ -67,6 +77,7 @@ let selectedReasoning = localStorage.getItem("codexPhoneReasoning") || "中";
 let settingsRenderSeq = 0;
 let artifactItems = [];
 let activeArtifactPath = "";
+let activePanel = "artifacts";
 let accessMode = {
   label: "フルアクセス",
   approvalPolicy: "never",
@@ -109,11 +120,37 @@ const accessModes = [
   { label: "読み取り専用", approvalPolicy: "on-request", sandboxMode: "read-only" },
 ];
 
+const fontAwesomeIcons = {
+  chevronDown: {
+    viewBox: "0 0 448 512",
+    path: "M201.4 406.6c12.5 12.5 32.8 12.5 45.3 0l192-192c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L224 338.7 54.6 169.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l192 192z",
+  },
+  folder: {
+    viewBox: "0 0 512 512",
+    path: "M64 448l384 0c35.3 0 64-28.7 64-64l0-240c0-35.3-28.7-64-64-64L298.7 80c-6.9 0-13.7-2.2-19.2-6.4L241.1 44.8C230 36.5 216.5 32 202.7 32L64 32C28.7 32 0 60.7 0 96L0 384c0 35.3 28.7 64 64 64z",
+  },
+  folderPlus: {
+    viewBox: "0 0 512 512",
+    path: "M512 384c0 35.3-28.7 64-64 64L64 448c-35.3 0-64-28.7-64-64L0 96C0 60.7 28.7 32 64 32l138.7 0c13.8 0 27.3 4.5 38.4 12.8l38.4 28.8c5.5 4.2 12.3 6.4 19.2 6.4L448 80c35.3 0 64 28.7 64 64l0 240zM256 160c-13.3 0-24 10.7-24 24l0 48-48 0c-13.3 0-24 10.7-24 24s10.7 24 24 24l48 0 0 48c0 13.3 10.7 24 24 24s24-10.7 24-24l0-48 48 0c13.3 0 24-10.7 24-24s-10.7-24-24-24l-48 0 0-48c0-13.3-10.7-24-24-24z",
+  },
+};
+
+function fontAwesomeIcon(name, className) {
+  const icon = fontAwesomeIcons[name];
+  return `<svg class="${className}" aria-hidden="true" focusable="false" data-prefix="fas" data-icon="${name}" role="img" viewBox="${icon.viewBox}" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="${icon.path}"></path></svg>`;
+}
+
+function setAccessButtonLabel() {
+  accessButton.innerHTML = `<span class="access-label">${escapeHtml(accessMode.label)}</span>${fontAwesomeIcon("chevronDown", "button-chevron-icon")}`;
+}
+
 function updateModelButton() {
-  modelButton.textContent = `${selectedModelLabel} ${selectedReasoning}`;
+  modelButton.innerHTML = `<span class="model-button-label">${escapeHtml(`${selectedModelLabel} ${selectedReasoning}`)}</span>${fontAwesomeIcon("chevronDown", "button-chevron-icon")}`;
+  modelButton.setAttribute("aria-label", `モデル ${selectedModelLabel}、インテリジェンス ${selectedReasoning}`);
   for (const row of modelMenu.querySelectorAll("[data-reasoning]")) {
     const active = row.dataset.reasoning === selectedReasoning;
     row.classList.toggle("active", active);
+    row.setAttribute("aria-checked", String(active));
     let mark = row.querySelector(".checkmark");
     if (active && !mark) {
       mark = document.createElement("span");
@@ -125,17 +162,24 @@ function updateModelButton() {
     }
   }
   for (const row of modelMenu.querySelectorAll("[data-model-choice]")) {
-    row.classList.toggle("active", row.dataset.modelChoice === selectedModel);
+    const active = row.dataset.modelChoice === selectedModel;
+    row.classList.toggle("active", active);
+    row.setAttribute("aria-checked", String(active));
   }
 }
 
 function closeModelMenu() {
   modelMenu.classList.add("hidden");
+  modelButton.setAttribute("aria-expanded", "false");
+  thinkingButton.setAttribute("aria-expanded", "false");
 }
 
 function toggleModelMenu() {
   updateModelButton();
   modelMenu.classList.toggle("hidden");
+  const expanded = String(!modelMenu.classList.contains("hidden"));
+  modelButton.setAttribute("aria-expanded", expanded);
+  thinkingButton.setAttribute("aria-expanded", expanded);
 }
 
 function selectReasoning(value) {
@@ -155,6 +199,39 @@ function selectModel(model) {
   updateModelButton();
   closeModelMenu();
   addStatus(`モデルを ${model.toUpperCase()} に設定しました。次の送信から反映します。`);
+}
+
+function syncSidebarState({ focus = false } = {}) {
+  const open = document.body.classList.contains("show-sidebar");
+  mobileThreadsButton.setAttribute("aria-expanded", String(open));
+  sidebar?.setAttribute("aria-hidden", String(!open && window.matchMedia("(max-width: 820px)").matches));
+  if (open && focus) {
+    const target = sidebar?.querySelector("button, input, [href], [tabindex]:not([tabindex='-1'])");
+    target?.focus();
+  }
+}
+
+function openSidebar({ focus = false } = {}) {
+  document.body.classList.add("show-sidebar");
+  syncSidebarState({ focus });
+}
+
+function closeSidebar({ restoreFocus = false } = {}) {
+  const wasOpen = document.body.classList.contains("show-sidebar");
+  document.body.classList.remove("show-sidebar");
+  syncSidebarState();
+  if (restoreFocus && wasOpen) mobileThreadsButton.focus();
+}
+
+function syncRightPanelState({ focus = false } = {}) {
+  const open = !document.body.classList.contains("hide-artifacts") || document.body.classList.contains("show-panel");
+  menuButton.setAttribute("aria-pressed", String(open));
+  menuButton.setAttribute("aria-expanded", String(open));
+  artifactPanel?.setAttribute("aria-hidden", String(!open));
+  if (open && focus) {
+    const target = artifactPanel?.querySelector("button, input, textarea, [href], [tabindex]:not([tabindex='-1'])");
+    target?.focus();
+  }
 }
 
 function titleForThread(thread) {
@@ -567,7 +644,9 @@ function addEntry(kind, text, images = []) {
 
   const tools = document.createElement("div");
   tools.className = "entry-tools";
-  tools.textContent = kind === "assistant" ? "□  ↗" : "";
+  if (kind === "assistant" || kind === "user") {
+    tools.innerHTML = '<button type="button" class="entry-tool-button" data-message-action="copy" aria-label="メッセージをコピー" title="コピー"></button>';
+  }
 
   el.append(avatar, body, tools);
   log.appendChild(el);
@@ -614,7 +693,7 @@ function renderThreadList() {
   const newProject = document.createElement("button");
   newProject.type = "button";
   newProject.className = selectedThread ? "project-heading new-project" : "project-heading new-project active";
-  newProject.innerHTML = '<span class="project-folder"></span><span>New project</span>';
+  newProject.innerHTML = `${fontAwesomeIcon("folderPlus", "project-icon")}<span>New project</span>`;
   newProject.addEventListener("click", () => selectThread(""));
   threadList.appendChild(newProject);
 
@@ -635,7 +714,8 @@ function renderThreadList() {
     const heading = document.createElement("div");
     heading.className = "project-heading";
     const folder = document.createElement("span");
-    folder.className = "project-folder";
+    folder.className = "project-icon-slot";
+    folder.innerHTML = fontAwesomeIcon("folder", "project-icon");
     const name = document.createElement("span");
     name.textContent = project;
     heading.append(folder, name);
@@ -751,23 +831,37 @@ function selectThread(threadId) {
   selectedThread = threadId;
   updateUrlThread();
   renderThreadList();
-  document.body.classList.remove("show-sidebar");
+  closeSidebar();
   connect();
 }
 
-function showRightPanel() {
+function showRightPanel({ focus = false } = {}) {
   document.body.classList.remove("hide-artifacts");
   document.body.classList.add("show-panel");
-  document.body.classList.remove("show-sidebar");
+  closeSidebar();
+  syncRightPanelState({ focus });
 }
 
-function closeRightPanel() {
+function closeRightPanel({ restoreFocus = false } = {}) {
+  const wasOpen = !document.body.classList.contains("hide-artifacts") || document.body.classList.contains("show-panel");
   document.body.classList.add("hide-artifacts");
   document.body.classList.remove("show-panel");
+  syncRightPanelState();
+  if (restoreFocus && wasOpen) menuButton.focus();
 }
 
-function clearPanel(title) {
+function setActivePanel(panel) {
+  activePanel = panel;
+  for (const button of panelTabButtons) {
+    const active = button.dataset.panelTab === panel;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+}
+
+function clearPanel(title, panel = activePanel) {
   showRightPanel();
+  setActivePanel(panel);
   artifactTitle.textContent = title;
   artifactList.classList.remove("artifact-browser-list");
   artifactList.replaceChildren();
@@ -776,19 +870,29 @@ function clearPanel(title) {
   artifactPreview.textContent = "";
 }
 
-function addPanelRow(text, detail, onClick) {
+function addPanelRow(text, detail, onClick, icon = "") {
   const row = document.createElement("button");
   row.type = "button";
   row.className = "artifact-row";
-  row.innerHTML = detail ? `<strong>${escapeHtml(text)}</strong><small>${escapeHtml(detail)}</small>` : escapeHtml(text);
+  row.classList.toggle("no-icon", !icon);
+  const iconHtml = icon ? `<span class="panel-row-icon" aria-hidden="true">${escapeHtml(icon)}</span>` : "";
+  row.innerHTML = detail
+    ? `${iconHtml}<span class="panel-row-copy"><strong>${escapeHtml(text)}</strong><small>${escapeHtml(detail)}</small></span>`
+    : `${iconHtml}<span class="panel-row-copy">${escapeHtml(text)}</span>`;
   if (onClick) row.addEventListener("click", onClick);
   artifactList.appendChild(row);
   return row;
 }
 
+function appendToPrompt(text) {
+  promptInput.value = `${promptInput.value}${promptInput.value ? "\n" : ""}${text}`;
+  promptInput.focus();
+}
+
 function renderArtifactIndex(items) {
   artifactItems = items;
   activeArtifactPath = "";
+  setActivePanel("artifacts");
   artifactTitle.textContent = "アーティファクト";
   artifactList.classList.add("artifact-browser-list");
   renderArtifactRows();
@@ -798,8 +902,9 @@ function renderArtifactIndex(items) {
 function renderArtifactRows() {
   artifactList.replaceChildren();
   for (const item of artifactItems) {
-    const icon = item.kind === "image" ? "画像" : item.kind === "markdown" ? "MD" : "FILE";
-    const row = addPanelRow(item.name, `${icon} · ${item.path}`, () => showArtifact(item.path));
+    const icon = item.kind === "image" ? "IMG" : item.kind === "markdown" ? "MD" : "FILE";
+    const label = item.name || item.path?.split(/[\\/]/).filter(Boolean).pop() || "artifact";
+    const row = addPanelRow(label, item.path || "", () => showArtifact(item.path), icon);
     row.classList.toggle("active", item.path === activeArtifactPath);
   }
   if (!artifactItems.length) addPanelRow("アーティファクトは見つかりませんでした");
@@ -940,6 +1045,90 @@ async function showModels() {
   }
 }
 
+function renderWorkspaceEntries(entries) {
+  artifactList.replaceChildren();
+  artifactList.classList.add("artifact-browser-list");
+  for (const entry of entries) {
+    const icon = entry.type === "directory" ? "DIR" : entry.kind === "image" ? "IMG" : entry.kind === "markdown" ? "MD" : "FILE";
+    const row = addPanelRow(entry.name || entry.path, entry.path, null, icon);
+    row.classList.add("workspace-row");
+    if (entry.type === "directory") {
+      row.disabled = true;
+      continue;
+    }
+    row.innerHTML += `
+      <span class="row-actions" aria-hidden="true">
+        <span>追加</span>
+      </span>
+    `;
+    let clickTimer = null;
+    row.addEventListener("click", (event) => {
+      if (event.altKey || event.metaKey) {
+        showArtifact(entry.path);
+        return;
+      }
+      if (event.detail > 1) return;
+      clearTimeout(clickTimer);
+      clickTimer = setTimeout(() => {
+        appendToPrompt(`@${entry.path}`);
+        addStatus(`${entry.path} をチャット入力へ追加しました。`);
+      }, 220);
+    });
+    row.addEventListener("dblclick", () => {
+      clearTimeout(clickTimer);
+      showArtifact(entry.path);
+    });
+  }
+  if (!entries.length) addPanelRow("ワークスペース内のファイルは見つかりませんでした", "検索条件を変えるか、リポジトリを確認してください");
+}
+
+async function showWorkspace() {
+  clearPanel("ワークスペース", "workspace");
+  addPanelRow("読み込み中...");
+  try {
+    const result = await apiGet("/api/workspace?limit=180");
+    renderWorkspaceEntries(result.data || []);
+  } catch (error) {
+    showToolError("ワークスペース", error);
+  }
+}
+
+function renderReview(result) {
+  artifactList.replaceChildren();
+  artifactList.classList.add("artifact-browser-list");
+  addPanelRow("ブランチ", result.branch || "unknown", null, "G");
+  addPanelRow(result.clean ? "変更なし" : `${result.files?.length || 0}件の変更`, result.clean ? "working tree clean" : "git status --short", null, "Δ");
+  for (const statLine of result.stat || []) addPanelRow(statLine.trim(), "", null, "Σ");
+  for (const file of result.files || []) {
+    const row = addPanelRow(file.path, file.status, () => {
+      appendToPrompt(`レビュー対象: ${file.path}`);
+      addStatus(`${file.path} をレビュー対象として入力に追加しました。`);
+    }, file.status || "MOD");
+    row.classList.add("review-row");
+  }
+}
+
+async function showReview() {
+  clearPanel("レビュー", "review");
+  addPanelRow("読み込み中...");
+  try {
+    const result = await apiGet("/api/review");
+    renderReview(result);
+  } catch (error) {
+    showToolError("レビュー", error);
+  }
+}
+
+function showSources() {
+  clearPanel("情報源", "sources");
+  addPanelRow("Web調査を入力へ追加", "外部確認が必要なターンで使う", () => {
+    appendToPrompt("Web調査を使って確認してください。");
+    addStatus("Web調査指示をチャット入力へ追加しました。");
+  }, "WEB");
+  addPanelRow("ローカルファイル", "Filesタブから @path を追加できます", showWorkspace, "FILE");
+  addPanelRow("差分レビュー", "Diffタブから変更ファイルを追加できます", showReview, "DIFF");
+}
+
 function startVoiceInput() {
   voiceButton.dataset.voiceState = "requested";
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -968,7 +1157,7 @@ function startVoiceInput() {
 }
 
 async function showStatus() {
-  clearPanel("バックグラウンド");
+  clearPanel("バックグラウンド", "status");
   try {
     const result = await apiGet("/api/status");
     addPanelRow("UI port", String(result.uiPort));
@@ -985,6 +1174,7 @@ async function showStatus() {
 
 async function showArtifact(path) {
   showRightPanel();
+  setActivePanel("artifacts");
   artifactTitle.textContent = "アーティファクト";
   artifactList.classList.add("artifact-browser-list");
   activeArtifactPath = path;
@@ -1043,6 +1233,7 @@ function renderAttachments() {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "attachment-chip";
+    chip.setAttribute("aria-label", `${file.name} の添付を削除`);
     const thumb = document.createElement("img");
     thumb.src = file.dataUrl;
     thumb.alt = "";
@@ -1197,28 +1388,31 @@ searchButton.addEventListener("click", () => {
   threadSearch.classList.toggle("hidden");
   threadSearch.focus();
   renderThreadList();
-  document.body.classList.add("show-sidebar");
+  openSidebar();
 });
 threadSearch.addEventListener("input", renderThreadList);
 pluginsButton.addEventListener("click", showPlugins);
 automationsButton.addEventListener("click", showAutomations);
 settingsButton.addEventListener("click", showSettings);
-mobileThreadsButton.addEventListener("click", () => document.body.classList.toggle("show-sidebar"));
-sidebarScrim.addEventListener("click", () => document.body.classList.remove("show-sidebar"));
+mobileThreadsButton.addEventListener("click", () => {
+  if (document.body.classList.contains("show-sidebar")) closeSidebar({ restoreFocus: true });
+  else openSidebar({ focus: true });
+});
+sidebarScrim.addEventListener("click", () => closeSidebar({ restoreFocus: true }));
 connectButton.addEventListener("click", connect);
 menuButton.addEventListener("click", () => {
   const desktopPanelVisible =
     window.matchMedia("(min-width: 1101px)").matches && !document.body.classList.contains("hide-artifacts");
   const mobilePanelVisible = document.body.classList.contains("show-panel");
   if (desktopPanelVisible || mobilePanelVisible) {
-    closeRightPanel();
+    closeRightPanel({ restoreFocus: true });
     addStatus("右パネルを閉じました。");
   } else {
-    showRightPanel();
+    showRightPanel({ focus: window.matchMedia("(max-width: 1100px)").matches });
     addStatus("右パネルを開きました。");
   }
 });
-closePanelButton.addEventListener("click", closeRightPanel);
+closePanelButton.addEventListener("click", () => closeRightPanel({ restoreFocus: true }));
 artifactPreview.addEventListener("click", (event) => {
   if (event.target.closest("[data-preview-close]")) hideArtifactPreview();
 });
@@ -1238,7 +1432,7 @@ fileInput.addEventListener("change", async () => {
 accessButton.addEventListener("click", () => {
   const index = accessModes.findIndex((candidate) => candidate.label === accessMode.label);
   accessMode = accessModes[(index + 1) % accessModes.length];
-  accessButton.textContent = `${accessMode.label}⌄`;
+  setAccessButtonLabel();
   addStatus(`権限を ${accessMode.label} に切り替えました。次の送信から反映します。`);
 });
 thinkingButton.addEventListener("click", toggleModelMenu);
@@ -1260,16 +1454,70 @@ modelMenu.addEventListener("click", (event) => {
     showModels();
   }
 });
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-message-action='copy']");
+  if (!button) return;
+  const entry = button.closest(".entry");
+  const body = entry?.querySelector(".entry-body");
+  const text = body?.markdownSource || body?.innerText || "";
+  if (!text.trim()) return;
+  if (!navigator.clipboard?.writeText) {
+    appendToPrompt(text);
+    addStatus("クリップボードを利用できないため、入力欄へ追加しました。");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    addStatus("メッセージをコピーしました。");
+  } catch {
+    appendToPrompt(text);
+    addStatus("クリップボードに書き込めないため、入力欄へ追加しました。");
+  }
+});
 document.addEventListener("click", (event) => {
   if (modelMenu.classList.contains("hidden")) return;
   if (modelMenu.contains(event.target) || modelButton.contains(event.target) || thinkingButton.contains(event.target)) return;
   closeModelMenu();
 });
-statusButton.addEventListener("click", showStatus);
-webSearchButton.addEventListener("click", () => {
-  promptInput.value = `${promptInput.value}${promptInput.value ? "\n" : ""}Web調査を使って確認してください。`;
-  promptInput.focus();
+document.addEventListener("keydown", (event) => {
+  if (modelMenu.classList.contains("hidden")) return;
+  if (event.key === "Escape") {
+    closeModelMenu();
+    modelButton.focus();
+    return;
+  }
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const rows = Array.from(modelMenu.querySelectorAll(".model-menu-row"));
+  const current = rows.indexOf(document.activeElement);
+  let next = current;
+  if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = rows.length - 1;
+  else if (event.key === "ArrowDown") next = current < rows.length - 1 ? current + 1 : 0;
+  else if (event.key === "ArrowUp") next = current > 0 ? current - 1 : rows.length - 1;
+  rows[next]?.focus();
 });
+document.addEventListener("click", (event) => {
+  if (!document.body.classList.contains("show-panel")) return;
+  if (window.matchMedia("(min-width: 1101px)").matches) return;
+  if (artifactPanel.contains(event.target) || menuButton.contains(event.target)) return;
+  closeRightPanel({ restoreFocus: true });
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (document.body.classList.contains("show-panel")) {
+    closeRightPanel({ restoreFocus: true });
+    return;
+  }
+  if (document.body.classList.contains("show-sidebar")) {
+    closeSidebar({ restoreFocus: true });
+  }
+});
+statusButton.addEventListener("click", showStatus);
+artifactTab?.addEventListener("click", () => renderArtifactIndex(artifactItems));
+workspaceTab?.addEventListener("click", showWorkspace);
+reviewTab?.addEventListener("click", showReview);
+webSearchButton.addEventListener("click", showSources);
 for (const button of artifactButtons) {
   button.addEventListener("click", () => {
     for (const candidate of artifactButtons) candidate.classList.toggle("active", candidate === button);
@@ -1278,7 +1526,14 @@ for (const button of artifactButtons) {
 }
 
 setReady(false);
+setAccessButtonLabel();
 updateModelButton();
+modelButton.setAttribute("aria-haspopup", "menu");
+modelButton.setAttribute("aria-expanded", "false");
+thinkingButton.setAttribute("aria-haspopup", "menu");
+thinkingButton.setAttribute("aria-expanded", "false");
+syncSidebarState();
+syncRightPanelState();
 loadArtifacts();
 loadThreads().catch(() => {}).finally(connect);
 setInterval(() => loadThreads({ background: true }), 10_000);
