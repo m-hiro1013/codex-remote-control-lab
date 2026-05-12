@@ -47,7 +47,7 @@
   --focus: #2d7ff9;
   --dock-width: 420px;
   --thread-width: 232px;
-  --message-width: 616px;
+  --message-width: 1040px;
   --compact-radius: 8px;
   --control-height: 34px;
 }
@@ -959,6 +959,7 @@ body.hide-artifacts .artifact-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
+  width: min(var(--message-width), 100%);
   max-width: var(--message-width);
   margin: 0 auto 22px;
   color: var(--entry);
@@ -1266,7 +1267,7 @@ body.hide-artifacts .artifact-panel {
 }
 
 .review-digest-entry {
-  max-width: min(820px, calc(100% - 32px));
+  max-width: var(--message-width);
 }
 
 .review-digest-entry .entry-body {

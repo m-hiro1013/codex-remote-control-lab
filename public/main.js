@@ -574,16 +574,36 @@ function diffStatLabel(file) {
   return `<span class="diff-add">+${additions}</span><span class="diff-del">-${deletions}</span>`;
 }
 
+function shouldDisplayReviewFile(file) {
+  const clean = String(file.path || "").replace(/^[/\\]+/, "").replace(/[\\/]+$/, "");
+  if (!clean) return false;
+  if (clean === ".claude" || clean.startsWith(".claude/")) return false;
+  if (clean === ".phone-token" || clean.startsWith(".codex-home")) return false;
+  if (clean.startsWith(".uploads/") || clean.startsWith("node_modules/")) return false;
+  return Boolean(file.openable || Number(file.additions || 0) || Number(file.deletions || 0));
+}
+
 function renderReviewDigest(result) {
-  if (!result || result.clean || !result.files?.length) return null;
-  const openableFiles = result.files.filter((file) => file.openable).slice(0, 6);
-  const totalFiles = result.files.length;
-  const totals = result.totals || { additions: 0, deletions: 0 };
+  const files = (result?.files || []).filter(shouldDisplayReviewFile);
+  if (!result || result.clean || !files.length) return null;
+  const openableFiles = files.filter((file) => file.openable).slice(0, 6);
+  const totalFiles = files.length;
+  const totals =
+    result.totals && files.length === result.files?.length
+      ? result.totals
+      : files.reduce(
+          (sum, file) => ({
+            additions: sum.additions + Number(file.additions || 0),
+            deletions: sum.deletions + Number(file.deletions || 0),
+          }),
+          { additions: 0, deletions: 0 },
+        );
+  const sourceLabel = result.source === "latest commit" ? "最新commit" : "作業ツリー";
   const wrap = document.createElement("section");
   wrap.className = "review-digest";
   wrap.innerHTML = `
     <details class="review-reference-toggle">
-      <summary>${totalFiles}件の変更ファイル</summary>
+      <summary>${totalFiles}件の変更ファイル・${sourceLabel}</summary>
     </details>
     <div class="artifact-card-list"></div>
     <div class="diff-card">
@@ -615,7 +635,7 @@ function renderReviewDigest(result) {
   if (!openableFiles.length) artifactListNode.remove();
 
   const diffList = wrap.querySelector(".diff-file-list");
-  for (const file of result.files.slice(0, 12)) {
+  for (const file of files.slice(0, 12)) {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "diff-file-row";

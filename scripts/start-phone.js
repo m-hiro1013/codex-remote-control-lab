@@ -370,7 +370,7 @@ function runGit(args) {
 }
 
 function shouldSkipReviewPath(filePath) {
-  const clean = String(filePath || "").replace(/^[/\\]+/, "");
+  const clean = String(filePath || "").replace(/^[/\\]+/, "").replace(/[\\/]+$/, "");
   return (
     clean === ".claude" ||
     clean.startsWith(".claude/") ||
@@ -381,12 +381,8 @@ function shouldSkipReviewPath(filePath) {
   );
 }
 
-function reviewSummary() {
-  const branch = runGit(["branch", "--show-current"]);
-  const statusText = runGit(["status", "--short"]);
-  const statText = runGit(["diff", "--stat", "--"]);
-  const numstatText = runGit(["diff", "--numstat", "--"]);
-  const numstat = new Map(
+function parseNumstat(numstatText) {
+  return new Map(
     numstatText
       .split(/\r?\n/)
       .filter(Boolean)
@@ -402,35 +398,80 @@ function reviewSummary() {
         ];
       }),
   );
-  const files = statusText
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      const status = line.slice(0, 2).trim() || "modified";
-      const rawPath = line.slice(3).trim();
-      const filePath = rawPath.includes(" -> ") ? rawPath.split(" -> ").pop() : rawPath;
-      const absolutePath = safeRelativePath(filePath);
-      const stats = numstat.get(filePath) || { additions: 0, deletions: 0 };
+}
+
+function decorateReviewFiles(files) {
+  const decorated = files
+    .filter((file) => !shouldSkipReviewPath(file.path))
+    .map((file) => {
+      const absolutePath = safeRelativePath(file.path);
+      const openable = Boolean(absolutePath && fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile());
       return {
-        status,
-        path: filePath,
-        kind: absolutePath && fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile() ? artifactKindForPath(absolutePath) : "file",
-        additions: stats.additions,
-        deletions: stats.deletions,
-        openable: Boolean(absolutePath && fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile()),
+        ...file,
+        kind: openable ? artifactKindForPath(absolutePath) : "file",
+        openable,
       };
-    })
-    .filter((file) => !shouldSkipReviewPath(file.path));
-  const totals = files.reduce(
+    });
+  const totals = decorated.reduce(
     (sum, file) => ({
       additions: sum.additions + (file.additions || 0),
       deletions: sum.deletions + (file.deletions || 0),
     }),
     { additions: 0, deletions: 0 },
   );
+  return { files: decorated, totals };
+}
+
+function workingTreeReviewFiles(statusText, numstatText) {
+  const numstat = parseNumstat(numstatText);
+  return statusText
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const status = line.slice(0, 2).trim() || "modified";
+      const rawPath = line.slice(3).trim();
+      const filePath = rawPath.includes(" -> ") ? rawPath.split(" -> ").pop() : rawPath;
+      const stats = numstat.get(filePath) || { additions: 0, deletions: 0 };
+      return {
+        status,
+        path: filePath,
+        additions: stats.additions,
+        deletions: stats.deletions,
+      };
+    });
+}
+
+function lastCommitReviewFiles() {
+  const numstat = parseNumstat(runGit(["show", "--numstat", "--format=", "--no-renames", "HEAD"]));
+  const names = runGit(["show", "--name-status", "--format=", "--no-renames", "HEAD"])
+    .split(/\r?\n/)
+    .filter(Boolean);
+  return names.map((line) => {
+    const [status, ...rest] = line.split(/\t/);
+    const filePath = rest.join("\t");
+    const stats = numstat.get(filePath) || { additions: 0, deletions: 0 };
+    return {
+      status,
+      path: filePath,
+      additions: stats.additions,
+      deletions: stats.deletions,
+    };
+  });
+}
+
+function reviewSummary() {
+  const branch = runGit(["branch", "--show-current"]);
+  const statusText = runGit(["status", "--short"]);
+  const statText = runGit(["diff", "--stat", "--"]);
+  const working = decorateReviewFiles(workingTreeReviewFiles(statusText, runGit(["diff", "--numstat", "--"])));
+  const fallback = working.files.length ? null : decorateReviewFiles(lastCommitReviewFiles());
+  const source = fallback ? "latest commit" : "working tree";
+  const files = fallback?.files || working.files;
+  const totals = fallback?.totals || working.totals;
   return {
     branch,
     clean: files.length === 0,
+    source,
     files,
     totals,
     stat: statText.split(/\r?\n/).filter(Boolean).slice(0, 20),
