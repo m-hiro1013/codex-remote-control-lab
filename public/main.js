@@ -87,6 +87,11 @@ let accessMode = {
 let pendingFiles = [];
 let lastReviewDigestSignature = "";
 
+const panelWidthConfig = {
+  left: { min: 188, max: 360, fallback: 232, storageKey: "codexLeftSidebarWidth", cssVar: "--thread-width" },
+  right: { min: 280, max: 760, fallback: 420, storageKey: "codexRightSidebarWidth", cssVar: "--dock-width" },
+};
+
 const runStateText = {
   connecting: "接続中",
   ready: "待機中",
@@ -575,12 +580,7 @@ function diffStatLabel(file) {
 }
 
 function shouldDisplayReviewFile(file) {
-  const clean = String(file.path || "").replace(/^[/\\]+/, "").replace(/[\\/]+$/, "");
-  if (!clean) return false;
-  if (clean === ".claude" || clean.startsWith(".claude/")) return false;
-  if (clean === ".phone-token" || clean.startsWith(".codex-home")) return false;
-  if (clean.startsWith(".uploads/") || clean.startsWith("node_modules/")) return false;
-  return Boolean(file.openable || Number(file.additions || 0) || Number(file.deletions || 0));
+  return Boolean(file?.path && (file.openable || Number(file.additions || 0) || Number(file.deletions || 0)));
 }
 
 function renderReviewDigest(result) {
@@ -658,11 +658,12 @@ async function appendReviewDigest() {
       branch: result.branch,
       files: (result.files || []).map((file) => [file.status, file.path, file.additions, file.deletions]),
     });
-    if (signature === lastReviewDigestSignature && log.querySelector(".review-digest-entry")) return;
+    const existingDigests = Array.from(log.querySelectorAll(".review-digest-entry"));
+    if (signature === lastReviewDigestSignature && existingDigests.length) return;
     lastReviewDigestSignature = signature;
     const digest = renderReviewDigest(result);
+    for (const existing of existingDigests) existing.remove();
     if (!digest) return;
-    for (const existing of log.querySelectorAll(".review-digest-entry")) existing.remove();
     const el = document.createElement("article");
     el.className = "entry assistant review-digest-entry";
     const body = document.createElement("div");
@@ -1386,29 +1387,25 @@ function clampNumber(value, min, max) {
 }
 
 function setPanelWidth(kind, width) {
+  const config = panelWidthConfig[kind];
+  if (!config) return width;
+  const next = clampNumber(width, config.min, config.max);
   const rootStyle = document.documentElement.style;
-  if (kind === "left") {
-    const next = clampNumber(width, 188, 360);
-    rootStyle.setProperty("--thread-width", `${next}px`);
-    localStorage.setItem("codexLeftSidebarWidth", String(next));
-    leftResizeHandle?.setAttribute("aria-valuenow", String(next));
-    return next;
-  }
-  const next = clampNumber(width, 280, 760);
-  rootStyle.setProperty("--dock-width", `${next}px`);
-  localStorage.setItem("codexRightSidebarWidth", String(next));
-  rightResizeHandle?.setAttribute("aria-valuenow", String(next));
+  const handle = kind === "left" ? leftResizeHandle : rightResizeHandle;
+  rootStyle.setProperty(config.cssVar, `${next}px`);
+  localStorage.setItem(config.storageKey, String(next));
+  handle?.setAttribute("aria-valuenow", String(next));
   return next;
 }
 
 function loadPanelWidths() {
-  const left = Number(localStorage.getItem("codexLeftSidebarWidth"));
-  const right = Number(localStorage.getItem("codexRightSidebarWidth"));
-  if (left) setPanelWidth("left", left);
-  if (right) setPanelWidth("right", right);
-  for (const handle of [leftResizeHandle, rightResizeHandle]) {
-    handle?.setAttribute("aria-valuemin", handle === leftResizeHandle ? "188" : "280");
-    handle?.setAttribute("aria-valuemax", handle === leftResizeHandle ? "360" : "760");
+  for (const kind of ["left", "right"]) {
+    const config = panelWidthConfig[kind];
+    const handle = kind === "left" ? leftResizeHandle : rightResizeHandle;
+    const savedWidth = Number(localStorage.getItem(config.storageKey));
+    if (savedWidth) setPanelWidth(kind, savedWidth);
+    handle?.setAttribute("aria-valuemin", String(config.min));
+    handle?.setAttribute("aria-valuemax", String(config.max));
   }
 }
 
@@ -1418,9 +1415,9 @@ function bindResizeHandle(handle, kind) {
   const currentWidth = () => {
     const value =
       kind === "left"
-        ? getComputedStyle(document.documentElement).getPropertyValue("--thread-width")
-        : getComputedStyle(document.documentElement).getPropertyValue("--dock-width");
-    return Number.parseFloat(value) || (kind === "left" ? 232 : 420);
+        ? getComputedStyle(document.documentElement).getPropertyValue(panelWidthConfig.left.cssVar)
+        : getComputedStyle(document.documentElement).getPropertyValue(panelWidthConfig.right.cssVar);
+    return Number.parseFloat(value) || panelWidthConfig[kind].fallback;
   };
 
   handle.addEventListener("pointerdown", (event) => {
@@ -1448,8 +1445,8 @@ function bindResizeHandle(handle, kind) {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
     const step = event.shiftKey ? 32 : 12;
-    if (event.key === "Home") setPanelWidth(kind, kind === "left" ? 188 : 280);
-    else if (event.key === "End") setPanelWidth(kind, kind === "left" ? 360 : 760);
+    if (event.key === "Home") setPanelWidth(kind, panelWidthConfig[kind].min);
+    else if (event.key === "End") setPanelWidth(kind, panelWidthConfig[kind].max);
     else {
       const direction = event.key === "ArrowRight" ? 1 : -1;
       setPanelWidth(kind, currentWidth() + (kind === "left" ? direction : -direction) * step);

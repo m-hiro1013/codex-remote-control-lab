@@ -1,4 +1,5 @@
 AGENT.local.md
+.claude/
 node_modules/
 .codex-home*/
 schemas/
