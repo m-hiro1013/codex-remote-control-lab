@@ -111,7 +111,7 @@ PHONE_NOTIFY_TIMEOUT_MS=5000 npm run phone
 - browser で選んだ画像を Codex `localImage` input として送信
 - local repository image artifact を token-protected file route から表示
 - status/tool log の折りたたみ表示
-- simple / cyberpunk / botanical のカラーテーマを browser local storage に保存
+- simple / cyberpunk / botanical / Stigmata のカラーテーマを browser local storage に保存
 
 ## 🖼️ UI Evidence
 
@@ -127,31 +127,39 @@ Theme comparison:
 
 <table>
   <tr>
-    <td align="center" width="33%">
+    <td align="center" width="25%">
       <img src="docs/assets/theme-simple-desktop.png" alt="Simple theme desktop screenshot" width="280"><br>
       <sub>シンプル desktop</sub>
     </td>
-    <td align="center" width="33%">
+    <td align="center" width="25%">
       <img src="docs/assets/theme-cyberpunk-desktop.png" alt="Cyberpunk theme desktop screenshot" width="280"><br>
       <sub>サイバーパンク desktop</sub>
     </td>
-    <td align="center" width="33%">
+    <td align="center" width="25%">
       <img src="docs/assets/theme-botanical-desktop.png" alt="Botanical theme desktop screenshot" width="280"><br>
       <sub>ボタニカル desktop</sub>
     </td>
+    <td align="center" width="25%">
+      <img src="docs/assets/theme-stigmata-desktop.png" alt="Stigmata theme desktop screenshot" width="280"><br>
+      <sub>Stigmata desktop</sub>
+    </td>
   </tr>
   <tr>
-    <td align="center" width="33%">
+    <td align="center" width="25%">
       <img src="docs/assets/theme-simple-mobile-settings.png" alt="Simple theme mobile settings screenshot" width="180"><br>
       <sub>シンプル設定</sub>
     </td>
-    <td align="center" width="33%">
+    <td align="center" width="25%">
       <img src="docs/assets/theme-cyberpunk-mobile-settings.png" alt="Cyberpunk theme mobile settings screenshot" width="180"><br>
       <sub>サイバーパンク設定</sub>
     </td>
-    <td align="center" width="33%">
+    <td align="center" width="25%">
       <img src="docs/assets/theme-botanical-mobile-settings.png" alt="Botanical theme mobile settings screenshot" width="180"><br>
       <sub>ボタニカル設定</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="docs/assets/theme-stigmata-mobile-settings.png" alt="Stigmata theme mobile settings screenshot" width="180"><br>
+      <sub>Stigmata設定</sub>
     </td>
   </tr>
 </table>

@@ -210,10 +210,12 @@ async function run() {
     await snap(page, "theme-cyberpunk-desktop.png");
     await setTheme(page, "botanical");
     await snap(page, "theme-botanical-desktop.png");
+    await setTheme(page, "stigmata");
+    await snap(page, "theme-stigmata-desktop.png");
     await page.close();
 
     page = await newPage(browser, origin, { width: 1280, height: 720 });
-    await page.getByRole("button", { name: "desktop-like-ui-desktop.png" }).click();
+    await page.evaluate(() => window.showArtifact("docs/assets/desktop-like-ui-desktop.png"));
     await page.waitForSelector(".artifact-preview:not(.hidden)");
     await snap(page, "chat-font-image-preview.png");
     await page.close();
@@ -232,12 +234,18 @@ async function run() {
     await page.waitForTimeout(250);
     await page.evaluate(() => document.querySelector("#settingsButton").click());
     await snap(page, "theme-simple-mobile-settings.png");
-    await page.locator('[data-theme-choice="cyberpunk"]').click();
+    await setTheme(page, "cyberpunk");
+    await page.evaluate(() => window.showSettings());
     await page.waitForTimeout(250);
     await snap(page, "theme-cyberpunk-mobile-settings.png");
-    await page.locator('[data-theme-choice="botanical"]').click();
+    await setTheme(page, "botanical");
+    await page.evaluate(() => window.showSettings());
     await page.waitForTimeout(250);
     await snap(page, "theme-botanical-mobile-settings.png");
+    await setTheme(page, "stigmata");
+    await page.evaluate(() => window.showSettings());
+    await page.waitForTimeout(250);
+    await snap(page, "theme-stigmata-mobile-settings.png");
     await setTheme(page, "cyberpunk");
     await page.evaluate(() => document.body.classList.remove("show-panel"));
     await snap(page, "mobile-desktop-like-controls.png");

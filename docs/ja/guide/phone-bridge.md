@@ -78,5 +78,5 @@ background の thread 一覧 polling は、同じ error の連続表示を抑え
 - repository artifact preview
 - chat と artifact の Markdown rendering
 - browser 画像添付を `localImage` input として Codex に渡す
-- 設定 panel から simple / cyberpunk / botanical のカラーテーマを切り替え
+- 設定 panel から simple / cyberpunk / botanical / Stigmata のカラーテーマを切り替え
 - bridge-managed thread を LAN 内の複数端末で共有
