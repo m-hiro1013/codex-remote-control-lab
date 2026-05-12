@@ -1,19 +1,40 @@
 import React from "react";
+import {
+  Box,
+  Brain,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  FileText,
+  Globe2,
+  Mic,
+  MoreHorizontal,
+  PanelLeft,
+  Plus,
+  RefreshCw,
+  Search,
+  Send,
+  Settings,
+  TerminalSquare,
+  Workflow,
+  X,
+} from "lucide-react";
 
 const navItems = [
-  ["newThread", "+", "新しいチャット", "新しいチャットを開始", ""],
-  ["searchButton", "⌕", "検索", "チャットを検索", "muted"],
-  ["pluginsButton", "◇", "プラグイン", "プラグインを表示", "muted"],
-  ["automationsButton", "⟳", "オートメーション", "オートメーションを表示", "muted"],
+  ["newThread", Plus, "新しいチャット", "新しいチャットを開始", ""],
+  ["searchButton", Search, "検索", "チャットを検索", "muted"],
+  ["pluginsButton", Box, "プラグイン", "プラグインを表示", "muted"],
+  ["automationsButton", Workflow, "オートメーション", "オートメーションを表示", "muted"],
 ];
 
 const artifacts = ["README.md", "AGENTS.md"];
 const reasoningLevels = ["低", "中", "高", "非常に高"];
 
 function IconCommand({ id, icon, label, ariaLabel, tone }) {
+  const Icon = icon;
   return (
     <button type="button" className={`nav-command ${tone}`.trim()} id={id} aria-label={ariaLabel}>
-      <span className="command-icon" aria-hidden="true">{icon}</span>
+      <span className="command-icon" aria-hidden="true"><Icon size={17} strokeWidth={1.9} /></span>
       <span>{label}</span>
     </button>
   );
@@ -24,13 +45,14 @@ function Sidebar() {
     <>
       <button type="button" className="sidebar-scrim" id="sidebarScrim" aria-label="チャット一覧を閉じる" />
       <aside className="sidebar" id="threadSidebar" aria-label="スレッド">
-        <div className="brand-card" aria-label="Codex local bridge">
-          <div className="brand-mark" aria-hidden="true">Cx</div>
-          <div className="brand-copy">
-            <strong>Codex</strong>
-            <span>Remote bridge</span>
-          </div>
-          <span className="brand-status">LAN</span>
+        <div className="sidebar-windowbar" aria-label="Codex local bridge">
+          <span className="window-dot red" aria-hidden="true" />
+          <span className="window-dot yellow" aria-hidden="true" />
+          <span className="window-dot green" aria-hidden="true" />
+          <span className="window-spacer" aria-hidden="true" />
+          <PanelLeft size={15} strokeWidth={1.8} aria-hidden="true" />
+          <ChevronLeft size={15} strokeWidth={1.8} aria-hidden="true" />
+          <ChevronRight size={15} strokeWidth={1.8} aria-hidden="true" />
         </div>
 
         <nav className="primary-nav" aria-label="主要操作">
@@ -46,7 +68,7 @@ function Sidebar() {
         </div>
 
         <button type="button" className="settings" id="settingsButton" aria-label="設定を表示">
-          <span className="command-icon" aria-hidden="true">⚙</span>
+          <span className="command-icon" aria-hidden="true"><Settings size={17} strokeWidth={1.9} /></span>
           <span>設定</span>
         </button>
       </aside>
@@ -63,8 +85,8 @@ function Header() {
         <p id="meta">接続準備中</p>
       </div>
       <div className="title-actions">
-        <button id="connect" type="button" className="icon-button" title="再接続" aria-label="再接続">↻</button>
-        <button type="button" className="icon-button" id="menuButton" title="右パネルを開閉" aria-label="右パネルを開閉" aria-controls="artifactPanel" aria-expanded="false">…</button>
+        <button id="connect" type="button" className="icon-button" title="再接続" aria-label="再接続"><RefreshCw size={16} strokeWidth={1.9} /></button>
+        <button type="button" className="icon-button" id="menuButton" title="右パネルを開閉" aria-label="右パネルを開閉" aria-controls="artifactPanel" aria-expanded="false"><MoreHorizontal size={18} strokeWidth={2} /></button>
       </div>
     </header>
   );
@@ -109,14 +131,14 @@ function Composer() {
       <textarea id="prompt" rows="2" placeholder="フォローアップの変更を求める" aria-label="Codex へのメッセージ" />
       <div className="composer-footer">
         <div className="composer-left">
-          <button type="button" className="ghost-button" id="addButton" aria-label="画像を添付">＋</button>
+          <button type="button" className="ghost-button icon-only" id="addButton" aria-label="画像を添付"><Plus size={18} strokeWidth={1.9} /></button>
           <button type="button" className="access-button" id="accessButton">フルアクセス⌄</button>
         </div>
         <div className="composer-right">
-          <button type="button" className="thinking-button" id="thinkingButton" title="インテリジェンス" aria-label="インテリジェンスを選択" />
+          <button type="button" className="thinking-button" id="thinkingButton" title="インテリジェンス" aria-label="インテリジェンスを選択"><Brain size={18} strokeWidth={1.9} /></button>
           <button type="button" id="modelButton" className="model-button">5.5 中⌄</button>
-          <button type="button" className="voice-button" id="voiceButton" title="音声入力" aria-label="音声入力" />
-          <button id="send" type="submit" className="send-button" title="送信" aria-label="送信">↑</button>
+          <button type="button" className="voice-button" id="voiceButton" title="音声入力" aria-label="音声入力"><Mic size={18} strokeWidth={1.9} /></button>
+          <button id="send" type="submit" className="send-button" title="送信" aria-label="送信"><Send size={18} strokeWidth={2.2} /></button>
         </div>
       </div>
       <ModelMenu />
@@ -153,11 +175,13 @@ function ArtifactPanel() {
       <section className="panel-card primary-panel">
         <div className="panel-title">
           <span id="artifactTitle">アーティファクト</span>
-          <button type="button" className="panel-close" id="closePanelButton" title="閉じる" aria-label="アーティファクトを閉じる">×</button>
+          <button type="button" className="panel-close" id="closePanelButton" title="閉じる" aria-label="アーティファクトを閉じる"><X size={15} strokeWidth={2} /></button>
         </div>
         <div id="artifactList">
           {artifacts.map((name) => (
-            <button key={name} type="button" className="artifact-row" data-artifact={name}>{name}</button>
+            <button key={name} type="button" className="artifact-row" data-artifact={name}>
+              <FileText size={15} strokeWidth={1.9} /><span>{name}</span>
+            </button>
           ))}
         </div>
         <div id="artifactPreview" className="artifact-preview hidden" />
@@ -165,15 +189,15 @@ function ArtifactPanel() {
       <section className="panel-card">
         <div className="panel-title">
           <span>バックグラウンド ターミナル</span>
-          <span>▪</span>
+          <Circle size={8} fill="currentColor" strokeWidth={0} />
         </div>
         <div id="terminalList">
-          <button type="button" className="terminal-row" id="statusButton">npm run phone</button>
+          <button type="button" className="terminal-row" id="statusButton"><TerminalSquare size={15} strokeWidth={1.9} /><span>npm run phone</span></button>
         </div>
       </section>
       <section className="panel-card">
         <div className="panel-title">情報源</div>
-        <button type="button" className="source-row" id="webSearchButton">ウェブ検索</button>
+        <button type="button" className="source-row" id="webSearchButton"><Globe2 size={15} strokeWidth={1.9} /><span>ウェブ検索</span></button>
       </section>
     </aside>
   );

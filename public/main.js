@@ -615,7 +615,9 @@ function addEntry(kind, text, images = []) {
 
   const tools = document.createElement("div");
   tools.className = "entry-tools";
-  tools.textContent = kind === "assistant" ? "□  ↗" : "";
+  if (kind === "assistant" || kind === "user") {
+    tools.innerHTML = '<button type="button" class="entry-tool-button" aria-label="メッセージ操作"></button>';
+  }
 
   el.append(avatar, body, tools);
   log.appendChild(el);
@@ -828,11 +830,14 @@ function clearPanel(title) {
   artifactPreview.textContent = "";
 }
 
-function addPanelRow(text, detail, onClick) {
+function addPanelRow(text, detail, onClick, icon = "") {
   const row = document.createElement("button");
   row.type = "button";
   row.className = "artifact-row";
-  row.innerHTML = detail ? `<strong>${escapeHtml(text)}</strong><small>${escapeHtml(detail)}</small>` : escapeHtml(text);
+  const iconHtml = icon ? `<span class="panel-row-icon" aria-hidden="true">${escapeHtml(icon)}</span>` : "";
+  row.innerHTML = detail
+    ? `${iconHtml}<span class="panel-row-copy"><strong>${escapeHtml(text)}</strong><small>${escapeHtml(detail)}</small></span>`
+    : `${iconHtml}<span class="panel-row-copy">${escapeHtml(text)}</span>`;
   if (onClick) row.addEventListener("click", onClick);
   artifactList.appendChild(row);
   return row;
@@ -850,9 +855,9 @@ function renderArtifactIndex(items) {
 function renderArtifactRows() {
   artifactList.replaceChildren();
   for (const item of artifactItems) {
-    const icon = item.kind === "image" ? "画像" : item.kind === "markdown" ? "MD" : "FILE";
+    const icon = item.kind === "image" ? "IMG" : item.kind === "markdown" ? "MD" : "FILE";
     const label = item.name || item.path?.split(/[\\/]/).filter(Boolean).pop() || "artifact";
-    const row = addPanelRow(label, `${icon} · ${item.path || ""}`, () => showArtifact(item.path));
+    const row = addPanelRow(label, item.path || "", () => showArtifact(item.path), icon);
     row.classList.toggle("active", item.path === activeArtifactPath);
   }
   if (!artifactItems.length) addPanelRow("アーティファクトは見つかりませんでした");
