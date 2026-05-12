@@ -280,13 +280,12 @@ body::before {
 }
 
 :root[data-theme="cyberpunk"] .composer:focus-within {
-  border-color: rgba(0, 255, 231, 0.5);
-  box-shadow: 0 0 0 1px rgba(0, 255, 231, 0.25), 0 20px 48px rgba(0, 255, 231, 0.1);
+  border-color: rgba(0, 255, 231, 0.22);
+  box-shadow: var(--composer-shadow);
 }
 
 :root[data-theme="cyberpunk"] textarea:focus {
-  outline: 2px solid color-mix(in srgb, var(--button) 70%, transparent);
-  outline-offset: -2px;
+  outline: 0;
 }
 
 :root[data-theme="cyberpunk"] .access-button {
@@ -1264,6 +1263,12 @@ body.hide-artifacts .artifact-panel {
   box-shadow: var(--composer-shadow);
   backdrop-filter: blur(18px);
   overflow: visible;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.composer:focus-within {
+  border-color: var(--composer-border);
+  box-shadow: var(--composer-shadow);
 }
 
 .composer::before {
@@ -1330,6 +1335,12 @@ textarea {
   line-height: 1.45;
 }
 
+textarea:focus,
+textarea:focus-visible {
+  outline: 0;
+  outline-offset: 0;
+}
+
 textarea::placeholder {
   color: color-mix(in srgb, var(--muted) 78%, transparent);
 }
@@ -1362,7 +1373,6 @@ textarea::placeholder {
 .ghost-button,
 .access-button,
 .model-button,
-.thinking-button,
 .voice-button {
   display: inline-flex;
   align-items: center;
@@ -1418,7 +1428,6 @@ textarea::placeholder {
   opacity: 0.72;
 }
 
-.thinking-button,
 .voice-button {
   position: relative;
   width: 30px;

@@ -2,7 +2,6 @@ import React from "react";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import {
   Box,
-  Brain,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -149,7 +148,6 @@ function Composer() {
           </button>
         </div>
         <div className="composer-right">
-          <button type="button" className="thinking-button" id="thinkingButton" title="インテリジェンス" aria-label="インテリジェンスを選択"><Brain size={18} strokeWidth={1.9} /></button>
           <button type="button" id="modelButton" className="model-button">
             <span className="model-button-label">5.5 中</span>
             <FaIcon icon={faChevronDown} className="button-chevron-icon" />

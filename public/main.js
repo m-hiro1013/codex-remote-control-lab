@@ -10,7 +10,6 @@ const menuButton = document.querySelector("#menuButton");
 const closePanelButton = document.querySelector("#closePanelButton");
 const addButton = document.querySelector("#addButton");
 const accessButton = document.querySelector("#accessButton");
-const thinkingButton = document.querySelector("#thinkingButton");
 const modelButton = document.querySelector("#modelButton");
 const modelMenu = document.querySelector("#modelMenu");
 const voiceButton = document.querySelector("#voiceButton");
@@ -171,7 +170,6 @@ function updateModelButton() {
 function closeModelMenu() {
   modelMenu.classList.add("hidden");
   modelButton.setAttribute("aria-expanded", "false");
-  thinkingButton.setAttribute("aria-expanded", "false");
 }
 
 function toggleModelMenu() {
@@ -179,7 +177,6 @@ function toggleModelMenu() {
   modelMenu.classList.toggle("hidden");
   const expanded = String(!modelMenu.classList.contains("hidden"));
   modelButton.setAttribute("aria-expanded", expanded);
-  thinkingButton.setAttribute("aria-expanded", expanded);
 }
 
 function selectReasoning(value) {
@@ -1435,7 +1432,6 @@ accessButton.addEventListener("click", () => {
   setAccessButtonLabel();
   addStatus(`権限を ${accessMode.label} に切り替えました。次の送信から反映します。`);
 });
-thinkingButton.addEventListener("click", toggleModelMenu);
 modelButton.addEventListener("click", toggleModelMenu);
 voiceButton.addEventListener("click", startVoiceInput);
 modelMenu.addEventListener("click", (event) => {
@@ -1476,7 +1472,7 @@ document.addEventListener("click", async (event) => {
 });
 document.addEventListener("click", (event) => {
   if (modelMenu.classList.contains("hidden")) return;
-  if (modelMenu.contains(event.target) || modelButton.contains(event.target) || thinkingButton.contains(event.target)) return;
+  if (modelMenu.contains(event.target) || modelButton.contains(event.target)) return;
   closeModelMenu();
 });
 document.addEventListener("keydown", (event) => {
@@ -1530,8 +1526,6 @@ setAccessButtonLabel();
 updateModelButton();
 modelButton.setAttribute("aria-haspopup", "menu");
 modelButton.setAttribute("aria-expanded", "false");
-thinkingButton.setAttribute("aria-haspopup", "menu");
-thinkingButton.setAttribute("aria-expanded", "false");
 syncSidebarState();
 syncRightPanelState();
 loadArtifacts();
