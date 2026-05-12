@@ -311,8 +311,13 @@ function discoverWorkspaceEntries({ limit = 200, query = "" } = {}) {
 
   function walk(dir, depth) {
     if (entries.length >= maxEntries || depth > 5) return;
-    const children = fs
-      .readdirSync(dir, { withFileTypes: true })
+    let children;
+    try {
+      children = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    children = children
       .filter((entry) => !shouldSkipWorkspaceEntry(entry.name))
       .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
 
@@ -348,7 +353,7 @@ function discoverWorkspaceEntries({ limit = 200, query = "" } = {}) {
 
 function runGit(args) {
   const result = spawnSync("git", args, {
-    cwd: root,
+    cwd: workdir,
     encoding: "utf8",
     timeout: 5000,
     maxBuffer: 512 * 1024,

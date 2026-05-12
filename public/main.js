@@ -1061,15 +1061,23 @@ function renderWorkspaceEntries(entries) {
         <span>追加</span>
       </span>
     `;
+    let clickTimer = null;
     row.addEventListener("click", (event) => {
       if (event.altKey || event.metaKey) {
         showArtifact(entry.path);
         return;
       }
-      appendToPrompt(`@${entry.path}`);
-      addStatus(`${entry.path} をチャット入力へ追加しました。`);
+      if (event.detail > 1) return;
+      clearTimeout(clickTimer);
+      clickTimer = setTimeout(() => {
+        appendToPrompt(`@${entry.path}`);
+        addStatus(`${entry.path} をチャット入力へ追加しました。`);
+      }, 220);
     });
-    row.addEventListener("dblclick", () => showArtifact(entry.path));
+    row.addEventListener("dblclick", () => {
+      clearTimeout(clickTimer);
+      showArtifact(entry.path);
+    });
   }
   if (!entries.length) addPanelRow("ワークスペース内のファイルは見つかりませんでした", "検索条件を変えるか、リポジトリを確認してください");
 }
@@ -1453,11 +1461,16 @@ document.addEventListener("click", async (event) => {
   const body = entry?.querySelector(".entry-body");
   const text = body?.markdownSource || body?.innerText || "";
   if (!text.trim()) return;
+  if (!navigator.clipboard?.writeText) {
+    appendToPrompt(text);
+    addStatus("クリップボードを利用できないため、入力欄へ追加しました。");
+    return;
+  }
   try {
     await navigator.clipboard.writeText(text);
     addStatus("メッセージをコピーしました。");
   } catch {
-    promptInput.value = `${promptInput.value}${promptInput.value ? "\n" : ""}${text}`;
+    appendToPrompt(text);
     addStatus("クリップボードに書き込めないため、入力欄へ追加しました。");
   }
 });
