@@ -1263,7 +1263,15 @@ function renderArtifactRows() {
   for (const item of artifactItems) {
     const icon = item.kind === "image" ? "IMG" : item.kind === "markdown" ? "MD" : "FILE";
     const label = item.name || item.path?.split(/[\\/]/).filter(Boolean).pop() || "artifact";
-    const row = addPanelRow(label, item.path || "", () => showArtifact(item.path), icon);
+    const row = addPanelRow(
+      label,
+      item.path || "",
+      (event) => {
+        event.stopPropagation();
+        showArtifact(item.path);
+      },
+      icon
+    );
     row.classList.toggle("active", item.path === activeArtifactPath);
   }
   if (!artifactItems.length) addPanelRow("アーティファクトは見つかりませんでした");
@@ -1544,7 +1552,7 @@ async function showStatus() {
 }
 
 async function showArtifact(path) {
-  showRightPanel();
+  showRightPanel({ focus: window.matchMedia("(max-width: 1100px)").matches });
   setActivePanel("artifacts");
   artifactTitle.textContent = "アーティファクト";
   artifactList.classList.add("artifact-browser-list");
@@ -1963,6 +1971,7 @@ modelMenu.addEventListener("click", (event) => {
 document.addEventListener("click", async (event) => {
   const artifactOpen = event.target.closest("[data-open-artifact-path]");
   if (artifactOpen) {
+    event.stopImmediatePropagation();
     showArtifact(artifactOpen.dataset.openArtifactPath);
     return;
   }
