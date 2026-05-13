@@ -9,6 +9,8 @@ const WebSocket = require("ws");
 const { bridgeKeyForRequest, shouldDisposeIdleBridge, shouldPromoteBridgeKey } = require("./bridge-state");
 const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
 const { bridgeUrls, notifyBridgeUrls } = require("./phone-notify");
+const { sandboxPolicyForMode } = require("./sandbox-policy");
+const { createThreadHistory, summarizeLiveItem } = require("./thread-history");
 const { findLiveBridge, readThreadSnapshot } = require("./thread-read");
 
 const root = path.resolve(__dirname, "..");
@@ -597,18 +599,6 @@ function saveDataUrlAttachment(attachment) {
   };
 }
 
-function sandboxPolicyForMode(mode) {
-  if (mode === "danger-full-access") return { type: "dangerFullAccess" };
-  if (mode === "read-only") return { type: "readOnly", networkAccess: true };
-  return {
-    type: "workspaceWrite",
-    writableRoots: [workdir],
-    networkAccess: true,
-    excludeTmpdirEnvVar: false,
-    excludeSlashTmp: false,
-  };
-}
-
 function serveStatic(req, res) {
   const requestPath = new URL(req.url, `http://${req.headers.host}`).pathname;
   const file = requestPath === "/" ? "index.html" : requestPath.slice(1);
@@ -623,72 +613,12 @@ function serveStatic(req, res) {
   fs.createReadStream(target).pipe(res);
 }
 
-function stripUiDirectives(text) {
-  return String(text || "")
-    .replace(/(?:^|\n)::[a-z0-9-]+\{[^\n]*\}(?=\n|$)/gi, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function summarizeItem(item) {
-  if (item.type === "userMessage") {
-    const textParts = [];
-    const attachments = [];
-    for (const part of item.content) {
-      if (part.type === "text") {
-        textParts.push(part.text);
-        continue;
-      }
-      if (part.type === "localImage" && part.path) {
-        const absolutePath = path.resolve(part.path);
-        if (absolutePath.startsWith(`${uploadDir}${path.sep}`)) {
-          attachments.push({
-            name: path.basename(absolutePath),
-            url: `/api/uploaded?name=${encodeURIComponent(path.basename(absolutePath))}`,
-          });
-        } else if (absolutePath.startsWith(`${root}${path.sep}`) && isImagePath(absolutePath)) {
-          const relative = path.relative(root, absolutePath);
-          attachments.push({ name: path.basename(absolutePath), url: `/api/file/raw?path=${encodeURIComponent(relative)}` });
-        }
-      }
-    }
-    return {
-      type: "user",
-      text: textParts.join("\n") || (attachments.length ? "添付画像" : ""),
-      attachments,
-    };
-  }
-  if (item.type === "agentMessage") return { type: "assistant", text: stripUiDirectives(item.text) };
-  if (item.type === "commandExecution") return { type: "status", text: `$ ${item.command}` };
-  if (item.type === "fileChange") return { type: "status", text: `file changes: ${item.status}` };
-  return null;
-}
-
-function summarizeLiveItem(item, phase = "completed") {
-  if (!item) return null;
-  if (item.type === "commandExecution") {
-    return phase === "started" ? `$ ${item.command}` : null;
-  }
-  if (item.type === "fileChange") {
-    return `file changes: ${item.status}`;
-  }
-  return null;
-}
-
-function historyFromThread(thread) {
-  const history = [];
-  for (const turn of thread.turns || []) {
-    for (const item of turn.items || []) {
-      const entry = summarizeItem(item);
-      if (entry && entry.text) history.push(entry);
-    }
-  }
-  return capHistory(history);
-}
-
-function capHistory(history) {
-  return history.slice(-historyLimit);
-}
+const { capHistory, historyFromThread, summarizeItem } = createThreadHistory({
+  root,
+  uploadDir,
+  isImagePath,
+  limit: historyLimit,
+});
 
 class SharedBridge {
   constructor(requestedThreadId, bridgeKey) {
@@ -926,7 +856,7 @@ class SharedBridge {
     };
     if (options.model) params.model = options.model;
     if (options.approvalPolicy) params.approvalPolicy = options.approvalPolicy;
-    if (options.sandboxMode) params.sandboxPolicy = sandboxPolicyForMode(options.sandboxMode);
+    if (options.sandboxMode) params.sandboxPolicy = sandboxPolicyForMode(options.sandboxMode, workdir);
     const id = this.request("turn/start", {
       ...params,
     });
