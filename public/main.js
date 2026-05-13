@@ -1259,9 +1259,9 @@ function slashTriggerMatch() {
 
 async function loadSlashSkills() {
   if (slashSkillsLoaded) return slashSkills;
-  slashSkillsLoaded = true;
   const result = await apiGet("/api/skills");
   slashSkills = result.data || [];
+  slashSkillsLoaded = true;
   return slashSkills;
 }
 
@@ -1323,7 +1323,7 @@ async function updateSlashSkillMenu() {
   }
   activeSlashMatch = match;
   ensureSlashSkillMenu().classList.remove("hidden");
-  ensureSlashSkillMenu().textContent = "読み込み中...";
+  if (!slashSkillsLoaded) ensureSlashSkillMenu().textContent = "読み込み中...";
   try {
     await loadSlashSkills();
     if (!activeSlashMatch) return;
