@@ -1181,10 +1181,8 @@ function claudeSessionFilePath(sessionId) {
   return target;
 }
 
-function readClaudeSessionFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return null;
+function parseClaudeSessionFile(filePath, text, stat) {
   const sessionId = path.basename(filePath, ".jsonl");
-  const stat = fs.statSync(filePath);
   const history = [];
   let title = "";
   let firstUserText = "";
@@ -1193,7 +1191,7 @@ function readClaudeSessionFile(filePath) {
   let createdAt = Number.POSITIVE_INFINITY;
   let updatedAt = stat.mtimeMs;
 
-  for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+  for (const line of text.split(/\r?\n/)) {
     if (!line.trim()) continue;
     let item;
     try {
@@ -1241,6 +1239,24 @@ function readClaudeSessionFile(filePath) {
   };
 }
 
+function readClaudeSessionFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null;
+  const stat = fs.statSync(filePath);
+  if (!stat.isFile()) return null;
+  return parseClaudeSessionFile(filePath, fs.readFileSync(filePath, "utf8"), stat);
+}
+
+async function readClaudeSessionFileAsync(filePath) {
+  if (!filePath) return null;
+  try {
+    const stat = await fs.promises.stat(filePath);
+    if (!stat.isFile()) return null;
+    return parseClaudeSessionFile(filePath, await fs.promises.readFile(filePath, "utf8"), stat);
+  } catch {
+    return null;
+  }
+}
+
 function claudeHistoryForSession(sessionId) {
   return readClaudeSessionFile(claudeSessionFilePath(sessionId))?.history || [];
 }
@@ -1262,15 +1278,20 @@ function localThreadList() {
   });
 }
 
-function claudeThreadListPayload() {
+async function claudeThreadListPayload() {
   const byId = new Map();
   const dir = claudeProjectDirFor();
-  if (fs.existsSync(dir)) {
-    for (const fileName of fs.readdirSync(dir)) {
-      if (!fileName.endsWith(".jsonl")) continue;
-      const session = readClaudeSessionFile(path.join(dir, fileName));
-      if (session) byId.set(session.summary.id, session.summary);
-    }
+  let fileNames = [];
+  try {
+    fileNames = await fs.promises.readdir(dir);
+  } catch {
+    fileNames = [];
+  }
+  const sessions = await Promise.all(
+    fileNames.filter((fileName) => fileName.endsWith(".jsonl")).map((fileName) => readClaudeSessionFileAsync(path.join(dir, fileName))),
+  );
+  for (const session of sessions) {
+    if (session) byId.set(session.summary.id, session.summary);
   }
   for (const thread of localThreadList()) {
     const existing = byId.get(thread.id);
@@ -1999,7 +2020,7 @@ async function main() {
       const requestedProvider = queryProvider(url, res);
       if (!requestedProvider) return;
       if (requestedProvider === "claude") {
-        sendJson(res, 200, claudeThreadListPayload());
+        sendJson(res, 200, await claudeThreadListPayload());
         return;
       }
       try {
