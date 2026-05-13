@@ -4,7 +4,15 @@ const path = require("path");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { findSlashCommand, parseSlashInput, readSlashCommands, renderSlashTemplate, slashCommandMetadata, slashShellCommand } = require("./slash-commands");
+const {
+  findSlashCommand,
+  parseSlashInput,
+  publicSlashCommandMetadata,
+  readSlashCommands,
+  renderSlashTemplate,
+  slashCommandMetadata,
+  slashShellCommand,
+} = require("./slash-commands");
 
 test("parses slash command name and args", () => {
   assert.deepEqual(parseSlashInput(" /compact "), { raw: "/compact", command: "compact", args: "" });
@@ -22,7 +30,7 @@ test("exposes bridge-native built-in slash commands", () => {
   assert.equal(findSlashCommand(commands, "help").name, "commands");
 });
 
-test("loads only prompt slash command extensions from local json", () => {
+test("loads prompt slash command extensions but rejects local shell extensions", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-slash-"));
   const file = path.join(dir, "slash.json");
   fs.writeFileSync(
@@ -72,4 +80,17 @@ test("slash command metadata hides templates and shell command bodies", () => {
     description: "handoff",
     requiresArgs: true,
   });
+});
+
+test("public slash command metadata does not expose prompt templates or shell bodies", () => {
+  const metadata = publicSlashCommandMetadata([
+    { name: "handoff", kind: "prompt", aliases: [], usage: "/handoff", description: "handoff", template: "secret {{args}}", requiresArgs: true },
+    { name: "diff", kind: "shell", aliases: [], usage: "/diff", description: "diff", command: "git diff --stat", requiresArgs: false },
+  ]);
+  assert.deepEqual(metadata, [
+    { name: "handoff", aliases: [], kind: "prompt", usage: "/handoff", description: "handoff", requiresArgs: true },
+    { name: "diff", aliases: [], kind: "shell", usage: "/diff", description: "diff", requiresArgs: false },
+  ]);
+  assert.equal(Object.hasOwn(metadata[0], "template"), false);
+  assert.equal(Object.hasOwn(metadata[1], "command"), false);
 });

@@ -2010,7 +2010,7 @@ class SharedBridge {
       }
       const shellCommand = slashShellCommand(command, parsed);
       if (!shellCommand.trim()) {
-        this.emit("status", { text: `/${command.name} の shell command が未設定です。` });
+        this.emit("status", { text: `/${command.name} は固定 allowlist にないため実行できません。` });
         return;
       }
       this.activeTurnId = crypto.randomUUID();
