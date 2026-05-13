@@ -8,4 +8,6 @@ docs/.vitepress/cache/
 *.log
 .env
 .phone-token
+.phone-thread
+.phone-thread-cwd
 .uploads/

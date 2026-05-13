@@ -46,7 +46,7 @@ const rightResizeHandle = document.querySelector("#rightResizeHandle");
 
 const params = new URLSearchParams(location.search);
 const token = params.get("token") || localStorage.getItem("codexPhoneToken") || "";
-let selectedThread = params.get("thread") || "";
+let selectedThread = params.get("thread") || localStorage.getItem("codexPhoneLastThread") || "";
 let tokenRequired = true;
 let authMode = "token";
 if (token) localStorage.setItem("codexPhoneToken", token);
@@ -86,6 +86,7 @@ let accessMode = {
   approvalPolicy: "never",
   sandboxMode: "danger-full-access",
 };
+let forceNewThreadOnce = false;
 let pendingFiles = [];
 let lastReviewDigestSignature = "";
 
@@ -956,7 +957,9 @@ function updateUrlThread() {
 }
 
 function syncReadyThread(threadId) {
-  if (!threadId || selectedThread === threadId) return;
+  if (!threadId) return;
+  localStorage.setItem("codexPhoneLastThread", threadId);
+  if (selectedThread === threadId) return;
   selectedThread = threadId;
   updateUrlThread();
   const selected = threadCache.find((thread) => thread.id === selectedThread);
@@ -966,10 +969,17 @@ function syncReadyThread(threadId) {
 
 function selectThread(threadId) {
   selectedThread = threadId;
+  if (threadId) localStorage.setItem("codexPhoneLastThread", threadId);
+  else localStorage.removeItem("codexPhoneLastThread");
   updateUrlThread();
   renderThreadList();
   closeSidebar();
   connect();
+}
+
+function startNewThread() {
+  forceNewThreadOnce = true;
+  selectThread("");
 }
 
 function showRightPanel({ focus = false } = {}) {
@@ -1490,6 +1500,8 @@ function connect() {
   const query = new URLSearchParams();
   if (tokenRequired && token) query.set("token", token);
   if (selectedThread) query.set("thread", selectedThread);
+  else if (forceNewThreadOnce) query.set("new", "1");
+  forceNewThreadOnce = false;
   const bridgeQuery = query.toString();
   ws = new WebSocket(`${proto}//${location.host}/bridge${bridgeQuery ? `?${bridgeQuery}` : ""}`);
   connectButton.disabled = true;
@@ -1601,7 +1613,7 @@ declineButton.addEventListener("click", () => {
   setRunState("running", "拒否済み・処理中");
 });
 
-newThreadButton.addEventListener("click", () => selectThread(""));
+newThreadButton.addEventListener("click", startNewThread);
 searchButton.addEventListener("click", () => {
   threadSearch.classList.toggle("hidden");
   threadSearch.focus();

@@ -10,7 +10,17 @@ const workdir = path.join(tempRoot, "active-workspace");
 fs.mkdirSync(workdir, { recursive: true });
 process.env.CODEX_WORKDIR = workdir;
 
-const { discoverWorkspaceEntries, reviewSummary, safeOpenPath } = require("./start-phone");
+const {
+  clearLastThreadId,
+  discoverWorkspaceEntries,
+  isMissingThreadError,
+  readLastThreadCwd,
+  readLastThreadId,
+  reviewSummary,
+  safeOpenPath,
+  writeLastThreadCwd,
+  writeLastThreadId,
+} = require("./start-phone");
 
 function runGit(args) {
   const result = spawnSync("git", args, { cwd: workdir, encoding: "utf8" });
@@ -56,4 +66,31 @@ test("reviewSummary marks CODEX_WORKDIR git paths as openable", async () => {
   assert.equal(reviewFile?.kind, "markdown");
   assert.equal(spacedFile?.openable, true);
   assert.equal(spacedFile?.additions, 1);
+});
+
+test("last-thread persistence writes, reads, and clears private local state", () => {
+  const threadPath = path.join(tempRoot, "last-thread");
+  const cwdPath = path.join(tempRoot, "last-thread-cwd");
+
+  assert.equal(readLastThreadId(threadPath), "");
+  assert.equal(readLastThreadCwd(cwdPath), "");
+
+  writeLastThreadId("thread-123", threadPath);
+  writeLastThreadCwd(workdir, cwdPath);
+
+  assert.equal(readLastThreadId(threadPath), "thread-123");
+  assert.equal(readLastThreadCwd(cwdPath), workdir);
+
+  clearLastThreadId("other-thread", { threadPath, cwdPath });
+  assert.equal(readLastThreadId(threadPath), "thread-123");
+
+  clearLastThreadId("thread-123", { threadPath, cwdPath });
+  assert.equal(readLastThreadId(threadPath), "");
+  assert.equal(readLastThreadCwd(cwdPath), "");
+});
+
+test("missing thread errors are detected for stale resume recovery", () => {
+  assert.equal(isMissingThreadError("no rollout found for thread id thread-123"), true);
+  assert.equal(isMissingThreadError("Thread not found"), true);
+  assert.equal(isMissingThreadError("connection closed"), false);
 });
