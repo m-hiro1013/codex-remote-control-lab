@@ -63,6 +63,7 @@ function loadEnvFile(filePath) {
   }
 })();
 
+const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
 const codexBin = path.join(root, "node_modules", ".bin", "codex");
 const claudeBin = process.env.CLAUDE_BIN || "claude";
 const claudeProjectsRoot = path.join(os.homedir(), ".claude", "projects");
@@ -678,13 +679,28 @@ function skillEntriesForInstalledPlugin(plugin = {}, marketplace = {}) {
 }
 
 function installedSkillsFromPluginMarketplaces(marketplaces = []) {
+  return mergeSkillEntries(
+    (marketplaces || []).flatMap((marketplace) => {
+      const skills = [];
+      for (const plugin of marketplace.plugins || marketplace.entries || []) {
+        const summary = plugin.summary || plugin;
+        if (!pluginIsInstalled(summary)) continue;
+        skills.push(...skillEntriesForInstalledPlugin(plugin, marketplace));
+      }
+      return skills;
+    }),
+  );
+}
+
+function installedLocalSkillEntries(home = codexHome) {
+  const skillsDir = path.join(home, "skills");
+  return mergeSkillEntries(discoverSkillFiles(skillsDir).map((filePath) => skillEntryFromFile(filePath)).filter(Boolean));
+}
+
+function mergeSkillEntries(...entryLists) {
   const byId = new Map();
-  for (const marketplace of marketplaces || []) {
-    for (const plugin of marketplace.plugins || marketplace.entries || []) {
-      const summary = plugin.summary || plugin;
-      if (!pluginIsInstalled(summary)) continue;
-      for (const normalized of skillEntriesForInstalledPlugin(plugin, marketplace)) byId.set(normalized.id || normalized.name, normalized);
-    }
+  for (const entryList of entryLists) {
+    for (const entry of entryList || []) byId.set(entry.id || entry.name, entry);
   }
   return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -1016,8 +1032,7 @@ async function reviewSummary() {
 }
 
 function readAutomations() {
-  const home = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-  const automationsDir = path.join(home, "automations");
+  const automationsDir = path.join(codexHome, "automations");
   if (!fs.existsSync(automationsDir)) return [];
   return fs
     .readdirSync(automationsDir, { withFileTypes: true })
@@ -1947,7 +1962,10 @@ function bindBrowser(browser, phoneToken, threadId) {
       return;
     }
     if (msg.type === "prompt") bridge.prompt(msg.text, msg.attachments, msg.options);
-    if (msg.type === "interrupt") bridge.interrupt();
+    if (msg.type === "interrupt") {
+      if (typeof bridge.interrupt === "function") bridge.interrupt();
+      else bridge.emitTo(browser, "status", { text: `${providerLabel()} providerでは実行中の中断は未対応です。` });
+    }
     if (msg.type === "approval") bridge.approval(msg.request, msg.decision);
   });
 }
@@ -2041,7 +2059,10 @@ async function main() {
       try {
         const result = await appServerRequest("plugin/list", { cwds: [workdir] });
         const marketplaces = result.marketplaces || result.data || [];
-        sendJson(res, 200, { data: installedSkillsFromPluginMarketplaces(marketplaces), marketplaces });
+        sendJson(res, 200, {
+          data: mergeSkillEntries(installedSkillsFromPluginMarketplaces(marketplaces), installedLocalSkillEntries()),
+          marketplaces,
+        });
       } catch (error) {
         sendJson(res, 500, { error: error.message });
       }
@@ -2304,7 +2325,9 @@ if (require.main === module) {
   module.exports = {
     decorateReviewFiles,
     discoverWorkspaceEntries,
+    installedLocalSkillEntries,
     installedSkillsFromPluginMarketplaces,
+    mergeSkillEntries,
     relativeDisplayPath,
     reviewSummary,
     runGit,

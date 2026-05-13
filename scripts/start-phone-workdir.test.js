@@ -9,8 +9,16 @@ const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-phone-workdir-"));
 const workdir = path.join(tempRoot, "active-workspace");
 fs.mkdirSync(workdir, { recursive: true });
 process.env.CODEX_WORKDIR = workdir;
+process.env.CODEX_HOME = path.join(tempRoot, "codex-home");
 
-const { discoverWorkspaceEntries, installedSkillsFromPluginMarketplaces, reviewSummary, safeOpenPath } = require("./start-phone");
+const {
+  discoverWorkspaceEntries,
+  installedLocalSkillEntries,
+  installedSkillsFromPluginMarketplaces,
+  mergeSkillEntries,
+  reviewSummary,
+  safeOpenPath,
+} = require("./start-phone");
 
 function runGit(args) {
   const result = spawnSync("git", args, { cwd: workdir, encoding: "utf8" });
@@ -94,5 +102,41 @@ test("installedSkillsFromPluginMarketplaces reads installed plugin SKILL.md file
         description: "Browser automation from a skill file",
       },
     ],
+  );
+});
+
+test("installedLocalSkillEntries reads normal CODEX_HOME skills", () => {
+  const skillDir = path.join(process.env.CODEX_HOME, "skills", "gh-release-notes");
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    "---\nname: gh-release-notes\ndescription: Release note drafting\n---\n\n# Release notes\n",
+    "utf8",
+  );
+
+  const skills = installedLocalSkillEntries(process.env.CODEX_HOME);
+
+  assert.deepEqual(
+    skills.map((skill) => ({ id: skill.id, name: skill.name, trigger: skill.trigger, description: skill.description })),
+    [
+      {
+        id: "gh-release-notes",
+        name: "gh-release-notes",
+        trigger: "/gh-release-notes",
+        description: "Release note drafting",
+      },
+    ],
+  );
+});
+
+test("mergeSkillEntries returns plugin and local skills together", () => {
+  const skills = mergeSkillEntries(
+    [{ id: "browser-use:browser", name: "browser-use:browser", trigger: "/browser-use:browser" }],
+    [{ id: "gh-release-notes", name: "gh-release-notes", trigger: "/gh-release-notes" }],
+  );
+
+  assert.deepEqual(
+    skills.map((skill) => skill.trigger),
+    ["/browser-use:browser", "/gh-release-notes"],
   );
 });
