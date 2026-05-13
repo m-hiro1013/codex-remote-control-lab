@@ -239,6 +239,43 @@ test("background thread polling stays quiet after browser bridge disconnects", a
   assert.equal(await page.locator("#runState").getAttribute("data-state"), "disconnected");
 });
 
+test("mobile text inputs keep iOS-safe font sizes without disabling zoom", async (t) => {
+  const server = await startStaticServer();
+  let browser;
+  t.after(async () => {
+    if (browser) await browser.close();
+    await server.close();
+  });
+
+  browser = await chromium.launch();
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 1,
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await context.newPage();
+  await mockApi(page);
+  await mockWebSocket(page);
+  await page.goto(`${server.origin}/?token=${token}`, { waitUntil: "networkidle" });
+  await page.waitForSelector("#send:not([disabled])");
+
+  const viewportContent = await page.locator('meta[name="viewport"]').getAttribute("content");
+  assert.doesNotMatch(viewportContent || "", /user-scalable\s*=\s*no/i);
+  assert.doesNotMatch(viewportContent || "", /maximum-scale\s*=\s*1/i);
+
+  const fontSize = async (selector) =>
+    Number.parseFloat(await page.locator(selector).evaluate((node) => getComputedStyle(node).fontSize));
+
+  assert.ok((await fontSize("#prompt")) >= 16, "composer prompt should not trigger iOS focus zoom");
+
+  assert.ok((await fontSize("#threadSearch")) >= 16, "thread search should not trigger iOS focus zoom");
+
+  await page.click("#expandPromptButton");
+  await page.waitForSelector("#promptModal:not(.hidden)");
+  assert.ok((await fontSize("#promptModalInput")) >= 16, "expanded prompt should not trigger iOS focus zoom");
+});
+
 test("mobile artifact preview stays open when launched from chat and panel rows", async (t) => {
   const server = await startStaticServer();
   let browser;
