@@ -828,6 +828,14 @@ function addStatus(text) {
   addStatusGroupItem(text);
 }
 
+function isNetworkDisconnectMessage(message) {
+  return /Failed to fetch|NetworkError|Load failed|Couldn'?t connect|Connection refused/i.test(String(message || ""));
+}
+
+function shouldSuppressBackgroundFetchError(message) {
+  return isNetworkDisconnectMessage(message) && (!ws || ws.readyState !== WebSocket.OPEN);
+}
+
 function setReady(ready) {
   sendButton.disabled = !ready;
   promptInput.disabled = !ready;
@@ -962,6 +970,10 @@ async function loadThreads({ background = false } = {}) {
     lastThreadListError = "";
   } catch (error) {
     const message = error.message || String(error);
+    if (background && shouldSuppressBackgroundFetchError(message)) {
+      lastThreadListError = message;
+      return;
+    }
     if (message !== lastThreadListError) {
       lastThreadListError = message;
       addEntry("error", `thread一覧を読めませんでした: ${message}`);
@@ -980,6 +992,7 @@ async function refreshSelectedThread() {
     lastThreadRefreshError = "";
   } catch (error) {
     const message = error.message || String(error);
+    if (shouldSuppressBackgroundFetchError(message)) return;
     if (message !== lastThreadRefreshError) {
       lastThreadRefreshError = message;
       addEntry("error", `thread更新を読めませんでした: ${message}`);

@@ -48,7 +48,7 @@ function startStaticServer() {
   });
 }
 
-async function mockApi(page) {
+async function mockApi(page, state = {}) {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/info") {
@@ -60,6 +60,10 @@ async function mockApi(page) {
       return;
     }
     if (url.pathname === "/api/threads") {
+      if (state.failThreads) {
+        await route.abort("failed");
+        return;
+      }
       await route.fulfill({ json: { threads: [] } });
       return;
     }
@@ -79,6 +83,9 @@ async function mockWebSocket(page) {
       for (const socket of window.__mockSockets) {
         socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(payload) }));
       }
+    };
+    window.__closeMockSockets = () => {
+      for (const socket of window.__mockSockets) socket.close();
     };
     class MockWebSocket extends EventTarget {
       constructor() {
@@ -161,4 +168,30 @@ test("web app submit sends prompt through WebSocket and hides raw reconnect payl
   assert.doesNotMatch(logText, /responseStreamDisconnected/);
   assert.doesNotMatch(logText, /websocket closed by server before response\.completed/);
   assert.equal(await page.locator("#runState").getAttribute("data-state"), "reconnecting");
+});
+
+test("background thread polling stays quiet after browser bridge disconnects", async (t) => {
+  const server = await startStaticServer();
+  let browser;
+  t.after(async () => {
+    if (browser) await browser.close();
+    await server.close();
+  });
+
+  browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  const apiState = { failThreads: false };
+  await mockApi(page, apiState);
+  await mockWebSocket(page);
+  await page.goto(`${server.origin}/?token=${token}`, { waitUntil: "networkidle" });
+  await page.waitForSelector("#send:not([disabled])");
+
+  await page.evaluate(() => window.__closeMockSockets());
+  await page.waitForFunction(() => document.querySelector("#runState")?.dataset.state === "disconnected");
+  apiState.failThreads = true;
+  await page.evaluate(() => loadThreads({ background: true }));
+
+  const logText = await page.locator("#log").innerText();
+  assert.doesNotMatch(logText, /thread一覧を読めませんでした: Failed to fetch/);
+  assert.equal(await page.locator("#runState").getAttribute("data-state"), "disconnected");
 });
