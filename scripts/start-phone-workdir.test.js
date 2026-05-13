@@ -69,11 +69,16 @@ test("safeDirectoryPath and readDirectoryListing stay inside the provided root",
   const homeRoot = path.join(tempRoot, "home");
   const child = path.join(homeRoot, "project-a");
   const hidden = path.join(homeRoot, ".hidden-project");
+  const outside = path.join(tempRoot, "outside-home");
+  const outsideLink = path.join(homeRoot, "outside-link");
   fs.mkdirSync(child, { recursive: true });
   fs.mkdirSync(hidden, { recursive: true });
+  fs.mkdirSync(outside, { recursive: true });
+  fs.symlinkSync(outside, outsideLink, "dir");
 
   assert.equal(safeDirectoryPath(child, homeRoot)?.absolute, fs.realpathSync(child));
   assert.equal(safeDirectoryPath(path.dirname(homeRoot), homeRoot), null);
+  assert.equal(safeDirectoryPath(outsideLink, homeRoot), null);
 
   const visibleListing = readDirectoryListing(homeRoot, false, homeRoot);
   assert.deepEqual(visibleListing.entries.map((entry) => entry.name), ["project-a"]);
@@ -92,7 +97,10 @@ test("readSkills returns public skill metadata without absolute paths", () => {
     "utf8",
   );
 
-  assert.deepEqual(readSkills({ codexSkillsDir: path.join(codexHome, "skills"), agentSkillsDir: "" }), [
+  const skills = readSkills({ codexSkillsDir: path.join(codexHome, "skills"), agentSkillsDir: "" });
+  assert.deepEqual(skills, [
     { name: "sample-skill", description: "Sample workflow", source: "codex" },
   ]);
+  assert.deepEqual(Object.keys(skills[0]).sort(), ["description", "name", "source"]);
+  assert.equal(JSON.stringify(skills).includes(codexHome), false);
 });
