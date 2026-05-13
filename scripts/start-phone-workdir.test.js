@@ -10,7 +10,7 @@ const workdir = path.join(tempRoot, "active-workspace");
 fs.mkdirSync(workdir, { recursive: true });
 process.env.CODEX_WORKDIR = workdir;
 
-const { discoverWorkspaceEntries, reviewSummary, safeOpenPath } = require("./start-phone");
+const { discoverWorkspaceEntries, installedSkillsFromPluginMarketplaces, reviewSummary, safeOpenPath } = require("./start-phone");
 
 function runGit(args) {
   const result = spawnSync("git", args, { cwd: workdir, encoding: "utf8" });
@@ -56,4 +56,43 @@ test("reviewSummary marks CODEX_WORKDIR git paths as openable", async () => {
   assert.equal(reviewFile?.kind, "markdown");
   assert.equal(spacedFile?.openable, true);
   assert.equal(spacedFile?.additions, 1);
+});
+
+test("installedSkillsFromPluginMarketplaces reads installed plugin SKILL.md files", () => {
+  const pluginRoot = path.join(tempRoot, "plugins", "browser-use");
+  const skillDir = path.join(pluginRoot, "skills", "browser");
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    "---\nname: browser\ndescription: Browser automation from a skill file\n---\n\n# Browser\n",
+    "utf8",
+  );
+
+  const skills = installedSkillsFromPluginMarketplaces([
+    {
+      id: "openai-bundled",
+      plugins: [
+        {
+          summary: { id: "browser-use@openai-bundled", name: "browser-use", installed: true },
+          source: { type: "local", path: pluginRoot },
+        },
+        {
+          summary: { id: "available@openai-bundled", name: "available", installed: false },
+          source: { type: "local", path: path.join(tempRoot, "plugins", "available") },
+        },
+      ],
+    },
+  ]);
+
+  assert.deepEqual(
+    skills.map((skill) => ({ id: skill.id, name: skill.name, trigger: skill.trigger, description: skill.description })),
+    [
+      {
+        id: "browser-use:browser",
+        name: "browser-use:browser",
+        trigger: "/browser-use:browser",
+        description: "Browser automation from a skill file",
+      },
+    ],
+  );
 });

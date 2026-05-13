@@ -591,20 +591,90 @@ function pluginIsInstalled(summary = {}) {
   return Boolean(summary.enabled || summary.installed || status === "installed" || status === "enabled");
 }
 
+function shortPluginName(name = "") {
+  return String(name || "").split("@")[0];
+}
+
 function normalizeSkillEntry(skill, pluginSummary = {}, marketplace = {}) {
   const source = skill?.summary || skill || {};
   const name = source.name || source.title || source.id || pluginSummary.name || pluginSummary.id;
   if (!name) return null;
+  const pluginName = shortPluginName(pluginSummary.name || pluginSummary.id || "");
+  const skillName = String(name);
+  const qualifiedName = skillName.includes(":") || !pluginName ? skillName : `${pluginName}:${skillName}`;
   return {
-    id: source.id || name,
-    name,
+    id: source.id && String(source.id).includes(":") ? source.id : qualifiedName,
+    name: qualifiedName,
     description: source.description || source.summary || pluginSummary.description || "",
-    trigger: source.trigger || source.command || `/${name}`,
+    trigger: source.trigger || source.command || `/${qualifiedName}`,
     pluginId: pluginSummary.id || pluginSummary.name || "",
-    pluginName: pluginSummary.name || pluginSummary.id || "",
+    pluginName,
     marketplaceId: marketplace.id || marketplace.name || "",
     marketplaceName: marketplace.name || marketplace.id || "",
   };
+}
+
+function frontmatterValue(text, key) {
+  const match = text.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!match) return "";
+  const line = match[1].split(/\r?\n/).find((candidate) => candidate.startsWith(`${key}:`));
+  if (!line) return "";
+  return line.slice(key.length + 1).trim().replace(/^["']|["']$/g, "");
+}
+
+function discoverSkillFiles(baseDir, { maxDepth = 5 } = {}) {
+  const files = [];
+  const base = path.resolve(baseDir || "");
+  if (!base || !fs.existsSync(base) || !fs.statSync(base).isDirectory()) return files;
+  const ignored = new Set([".git", "node_modules", "assets", "scripts", "references"]);
+  function walk(dir, depth) {
+    if (depth < 0) return;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const target = path.join(dir, entry.name);
+      if (entry.isFile() && entry.name === "SKILL.md") {
+        files.push(target);
+        continue;
+      }
+      if (!entry.isDirectory() || ignored.has(entry.name)) continue;
+      walk(target, depth - 1);
+    }
+  }
+  walk(base, maxDepth);
+  return files;
+}
+
+function skillEntryFromFile(filePath, pluginSummary = {}, marketplace = {}) {
+  let text = "";
+  try {
+    text = fs.readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  const name = frontmatterValue(text, "name") || path.basename(path.dirname(filePath));
+  const description = frontmatterValue(text, "description") || pluginSummary.description || "";
+  return normalizeSkillEntry({ id: name, name, description }, pluginSummary, marketplace);
+}
+
+function pluginSourcePath(plugin = {}, summary = {}) {
+  return plugin.source?.path || summary.source?.path || plugin.path || summary.path || "";
+}
+
+function skillEntriesForInstalledPlugin(plugin = {}, marketplace = {}) {
+  const summary = plugin.summary || plugin;
+  const skillFiles = discoverSkillFiles(pluginSourcePath(plugin, summary));
+  const fileEntries = skillFiles
+    .map((filePath) => skillEntryFromFile(filePath, summary, marketplace))
+    .filter(Boolean);
+  if (fileEntries.length) return fileEntries;
+  const skills = summary.skills || plugin.skills || summary.skillEntries || plugin.skillEntries || [];
+  const entries = skills.length ? skills : [summary];
+  return entries.map((skill) => normalizeSkillEntry(skill, summary, marketplace)).filter(Boolean);
 }
 
 function installedSkillsFromPluginMarketplaces(marketplaces = []) {
@@ -613,12 +683,7 @@ function installedSkillsFromPluginMarketplaces(marketplaces = []) {
     for (const plugin of marketplace.plugins || marketplace.entries || []) {
       const summary = plugin.summary || plugin;
       if (!pluginIsInstalled(summary)) continue;
-      const skills = summary.skills || plugin.skills || summary.skillEntries || plugin.skillEntries || [];
-      const entries = skills.length ? skills : [summary];
-      for (const skill of entries) {
-        const normalized = normalizeSkillEntry(skill, summary, marketplace);
-        if (normalized) byId.set(normalized.id || normalized.name, normalized);
-      }
+      for (const normalized of skillEntriesForInstalledPlugin(plugin, marketplace)) byId.set(normalized.id || normalized.name, normalized);
     }
   }
   return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -2239,6 +2304,7 @@ if (require.main === module) {
   module.exports = {
     decorateReviewFiles,
     discoverWorkspaceEntries,
+    installedSkillsFromPluginMarketplaces,
     relativeDisplayPath,
     reviewSummary,
     runGit,
