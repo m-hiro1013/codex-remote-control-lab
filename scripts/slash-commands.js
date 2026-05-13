@@ -75,13 +75,17 @@ function normalizeCommand(command) {
   };
 }
 
+function isAllowedExtensionCommand(command) {
+  return command.name && command.kind === "prompt";
+}
+
 function readSlashCommandExtensions(root, env = process.env) {
   const configuredPath = env.PHONE_SLASH_COMMANDS_FILE || path.join(root, "slash-commands.local.json");
   try {
     if (!fs.existsSync(configuredPath)) return [];
     const parsed = JSON.parse(fs.readFileSync(configuredPath, "utf8"));
     if (!Array.isArray(parsed)) return [];
-    return parsed.map(normalizeCommand).filter((command) => command.name && command.kind === "prompt");
+    return parsed.map(normalizeCommand).filter(isAllowedExtensionCommand);
   } catch {
     return [];
   }
@@ -109,6 +113,7 @@ function renderSlashTemplate(template, args, parsed) {
 }
 
 function slashShellCommand(command, parsed) {
+  if (!command || command.kind !== "shell") return "";
   if (command.name !== "diff") return "";
   return parsed?.args === "full" ? "git diff -- ." : "git status --short && git diff --stat";
 }
@@ -116,18 +121,23 @@ function slashShellCommand(command, parsed) {
 function slashCommandMetadata(command) {
   return {
     name: command.name,
-    aliases: command.aliases,
+    aliases: command.aliases || [],
     kind: command.kind,
-    usage: command.usage,
-    description: command.description,
+    usage: command.usage || `/${command.name}`,
+    description: command.description || "",
     requiresArgs: Boolean(command.requiresArgs),
   };
+}
+
+function publicSlashCommandMetadata(commands) {
+  return (commands || []).map(slashCommandMetadata);
 }
 
 module.exports = {
   builtInSlashCommands,
   findSlashCommand,
   parseSlashInput,
+  publicSlashCommandMetadata,
   readSlashCommands,
   renderSlashTemplate,
   slashCommandMetadata,
