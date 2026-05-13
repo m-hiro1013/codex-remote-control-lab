@@ -84,6 +84,9 @@ let statusGroup = null;
 let threadCache = [];
 let liveTurnActive = false;
 let lastHistorySignature = "";
+let visibleHistoryThread = selectedThread;
+const threadHistoryCache = new Map();
+const threadReadyNonce = new Map();
 let lastThreadListError = "";
 let lastThreadRefreshError = "";
 let selectedThreadRefreshActive = false;
@@ -979,6 +982,13 @@ function renderHistory(history) {
   for (const entry of history || []) addEntry(entry.type, entry.text, entry.attachments || []);
 }
 
+function cloneHistory(history = []) {
+  return history.map((entry) => ({
+    ...entry,
+    attachments: (entry.attachments || []).map((attachment) => ({ ...attachment })),
+  }));
+}
+
 function historySignature(history = []) {
   return JSON.stringify(
     history.map((entry) => ({
@@ -989,13 +999,24 @@ function historySignature(history = []) {
   );
 }
 
-function renderHistoryIfChanged(history = []) {
+function renderHistoryIfChanged(history = [], { threadId = selectedThread, cache = true } = {}) {
   const signature = historySignature(history);
-  if (signature === lastHistorySignature) return false;
+  if (cache && threadId) threadHistoryCache.set(threadId, cloneHistory(history));
+  if (signature === lastHistorySignature && visibleHistoryThread === threadId) return false;
   lastHistorySignature = signature;
+  visibleHistoryThread = threadId;
   renderHistory(history);
   appendReviewDigest();
   return true;
+}
+
+function prepareThreadHistoryForConnect(threadId) {
+  if (!threadId) {
+    renderHistoryIfChanged([], { threadId: "", cache: false });
+    return;
+  }
+  const cachedHistory = threadHistoryCache.get(threadId);
+  if (cachedHistory) renderHistoryIfChanged(cachedHistory, { threadId, cache: false });
 }
 
 function renderThreadList() {
@@ -1124,11 +1145,14 @@ async function loadThreads({ background = false } = {}) {
 
 async function refreshSelectedThread() {
   if (!selectedThread || liveTurnActive || selectedThreadRefreshActive) return;
+  const requestedThread = selectedThread;
+  const startedReadyNonce = threadReadyNonce.get(requestedThread) || 0;
   selectedThreadRefreshActive = true;
   try {
-    const result = await apiGet(`/api/thread?thread=${encodeURIComponent(selectedThread)}&provider=${encodeURIComponent(currentThreadProvider())}`);
-    if (result.threadId !== selectedThread) return;
-    renderHistoryIfChanged(result.history || []);
+    const result = await apiGet(`/api/thread?thread=${encodeURIComponent(requestedThread)}&provider=${encodeURIComponent(currentThreadProvider())}`);
+    if (result.threadId !== requestedThread || result.threadId !== selectedThread) return;
+    if ((threadReadyNonce.get(requestedThread) || 0) !== startedReadyNonce) return;
+    renderHistoryIfChanged(result.history || [], { threadId: result.threadId });
     lastThreadRefreshError = "";
   } catch (error) {
     const message = error.message || String(error);
@@ -1717,10 +1741,10 @@ function connect() {
   if (ws) ws.close();
   liveTurnActive = false;
   setRunState("connecting");
-  lastHistorySignature = "";
-  renderHistory([]);
+  prepareThreadHistoryForConnect(selectedThread);
   const selected = threadCache.find((thread) => thread.id === selectedThread);
   threadTitle.textContent = selected ? titleForThread(selected) : "新しい共有thread";
+  if (selectedThread) refreshSelectedThread();
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const query = new URLSearchParams();
@@ -1754,8 +1778,10 @@ function connect() {
         if (activeProvider === "codex") selectedModelLabel = selectedModelLabel.toUpperCase();
         updateModelButton();
       }
+      const readyThreadId = msg.threadId || selectedThread;
+      if (readyThreadId) threadReadyNonce.set(readyThreadId, (threadReadyNonce.get(readyThreadId) || 0) + 1);
       syncReadyThread(msg.threadId);
-      renderHistoryIfChanged(msg.history || []);
+      renderHistoryIfChanged(msg.history || [], { threadId: readyThreadId });
       meta.textContent = `${msg.model}  •  ${msg.clients}端末  •  ${msg.workdir}`;
       setRunState(msg.run?.state || "ready", msg.run?.label);
       addEntry("status", `共有${providerLabel(msg.provider || "codex")} thread ready: ${msg.threadId}`);
