@@ -272,7 +272,8 @@ test("thread switching keeps visible history until target history is ready", asy
   await page.waitForTimeout(60);
 
   let logText = await page.locator("#log").innerText();
-  assert.match(logText, /current thread answer/);
+  assert.match(logText, /thread履歴を読み込み中/);
+  assert.doesNotMatch(logText, /current thread answer/);
   assert.doesNotMatch(logText, /target snapshot answer|target ready answer/);
 
   await page.getByText("target snapshot answer").waitFor();
@@ -348,4 +349,60 @@ test("slower thread snapshot does not overwrite ready thread history", async (t)
   const logText = await page.locator("#log").innerText();
   assert.match(logText, /fresh ready answer/);
   assert.doesNotMatch(logText, /late stale snapshot answer|current thread answer/);
+});
+
+test("stale WebSocket ready messages from previous switches are ignored", async (t) => {
+  const server = await startStaticServer();
+  let browser;
+  t.after(async () => {
+    if (browser) await browser.close();
+    await server.close();
+  });
+
+  browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 844 }, deviceScaleFactor: 1 });
+  const apiState = {
+    threads: [
+      { id: "thread-a", name: "Thread A", cwd: root, updatedAt: Date.now() },
+      { id: "thread-b", name: "Thread B", cwd: root, updatedAt: Date.now() },
+    ],
+    threadSnapshots: {
+      "thread-a": { threadId: "thread-a", history: [{ type: "assistant", text: "thread a snapshot" }] },
+      "thread-b": { threadId: "thread-b", history: [{ type: "assistant", text: "thread b snapshot" }] },
+    },
+  };
+  await mockApi(page, apiState);
+  await mockWebSocket(page, {
+    readyPayloadByThread: {
+      "thread-a": {
+        type: "ready",
+        threadId: "thread-a",
+        history: [{ type: "assistant", text: "thread a ready" }],
+        model: "gpt-5.5",
+        clients: 1,
+        workdir: root,
+      },
+      "thread-b": {
+        type: "ready",
+        threadId: "thread-b",
+        history: [{ type: "assistant", text: "stale thread b ready" }],
+        model: "gpt-5.5",
+        clients: 1,
+        workdir: root,
+      },
+    },
+    readyDelayByThread: { "thread-b": 180 },
+  });
+
+  await page.goto(`${server.origin}/?token=${token}&thread=thread-a`, { waitUntil: "networkidle" });
+  await page.waitForSelector("#send:not([disabled])");
+  await page.getByText("thread a ready").waitFor();
+
+  await page.getByRole("button", { name: /Thread B/ }).click();
+  await page.getByRole("button", { name: /Thread A/ }).click();
+  await page.waitForTimeout(260);
+
+  const logText = await page.locator("#log").innerText();
+  assert.match(logText, /thread a ready|thread a snapshot/);
+  assert.doesNotMatch(logText, /stale thread b ready|thread b snapshot/);
 });
