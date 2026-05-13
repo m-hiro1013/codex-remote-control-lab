@@ -142,15 +142,15 @@ function setWorkspaceMeta(payload = {}) {
   if (!workspaceIndicator || !workspaceRepo || !workspaceLocation || !branchName) return;
   const hasMeta = Boolean(repoName || location || branch);
   workspaceIndicator.classList.toggle("empty", !hasMeta);
-  workspaceRepo.textContent = repoName || "Repo";
+  workspaceRepo.textContent = repoName || "リポジトリ";
   workspaceRepo.title = repoName || "";
   workspaceLocation.textContent = compactWorkspaceLocation(location || ".");
   workspaceLocation.title = location || ".";
-  branchName.textContent = branch || "unknown";
+  branchName.textContent = branch || "不明";
   branchName.title = branch || "";
   workspaceIndicator.setAttribute(
     "aria-label",
-    `現在のワークスペース: ${repoName || "unknown"} ${location || "."} ${branch || "unknown"}`,
+    `現在のワークスペース: ${repoName || "不明"} ${location || "."} ${branch || "不明"}`,
   );
 }
 
@@ -1411,7 +1411,7 @@ async function showStatus() {
     addPanelRow("履歴同期", result.historySyncEnabled ? "有効" : "無効");
     addPanelRow("リポジトリ", result.repoName || "");
     addPanelRow("現在地", result.workspaceLocation || result.workdir || "");
-    addPanelRow("Git branch", result.gitBranch || "unknown");
+    addPanelRow("Git ブランチ", result.gitBranch || "不明");
     addPanelRow("作業ディレクトリ", result.workdir);
     for (const bridge of result.bridges || []) {
       addPanelRow(bridge.threadId || "thread準備中", `${bridge.clients}端末 / ${bridge.ready ? "ready" : "starting"}`);

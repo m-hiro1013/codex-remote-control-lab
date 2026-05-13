@@ -4,7 +4,7 @@ const http = require("http");
 const net = require("net");
 const os = require("os");
 const path = require("path");
-const { execFileSync, spawn } = require("child_process");
+const { execFile, spawn } = require("child_process");
 const WebSocket = require("ws");
 const { bridgeKeyForRequest, shouldDisposeIdleBridge, shouldPromoteBridgeKey } = require("./bridge-state");
 const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
@@ -22,16 +22,11 @@ function displayPath(targetPath) {
 }
 
 function gitOutput(args) {
-  try {
-    return execFileSync("git", args, {
-      cwd: workdir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1500,
-    }).trim();
-  } catch {
-    return "";
-  }
+  return new Promise((resolve) => {
+    execFile("git", args, { cwd: workdir, encoding: "utf8", timeout: 1500 }, (error, stdout) => {
+      resolve(error ? "" : stdout.trim());
+    });
+  });
 }
 
 function loadEnvFile(filePath) {
@@ -90,16 +85,27 @@ const imageExtensions = new Map([
   [".svg", "image/svg+xml"],
 ]);
 
+let workspaceMetaCache = {
+  repoName: path.basename(workdir),
+  workspaceLocation: displayPath(workdir),
+  gitBranch: "不明",
+};
+
 function currentWorkspaceMeta() {
-  const gitRoot = gitOutput(["rev-parse", "--show-toplevel"]);
+  return workspaceMetaCache;
+}
+
+async function refreshWorkspaceMeta() {
+  const gitRoot = await gitOutput(["rev-parse", "--show-toplevel"]);
   const repoRoot = gitRoot || workdir;
-  const branch = gitOutput(["branch", "--show-current"]) || gitOutput(["rev-parse", "--short", "HEAD"]);
+  const branch = (await gitOutput(["branch", "--show-current"])) || (await gitOutput(["rev-parse", "--short", "HEAD"]));
   const location = gitRoot ? path.relative(gitRoot, workdir) || "." : displayPath(workdir);
-  return {
+  workspaceMetaCache = {
     repoName: path.basename(repoRoot),
     workspaceLocation: location,
-    gitBranch: branch || "unknown",
+    gitBranch: branch || "不明",
   };
+  return workspaceMetaCache;
 }
 
 const staticMimeTypes = new Map([
@@ -1178,9 +1184,10 @@ async function main() {
     }
     if (url.pathname === "/api/status") {
       if (!requireToken(url, phoneToken, res)) return;
+      const workspaceMeta = await refreshWorkspaceMeta();
       sendJson(res, 200, {
         workdir,
-        ...currentWorkspaceMeta(),
+        ...workspaceMeta,
         model,
         codexUrl,
         codexSocketPath: codexSocketPath || null,
