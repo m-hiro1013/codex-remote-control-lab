@@ -921,10 +921,7 @@ class SharedBridge {
           this.streamingStarted = false;
           this.setBridgeRunState("running", "Codex 処理中", this.activeTurnId);
           this.emit("turn", { status: "started", turnId: this.activeTurnId, run: this.runPayload() });
-          if (this.interruptRequested) {
-            this.interruptRequested = false;
-            this.sendTurnInterrupt(this.activeTurnId);
-          }
+          if (this.interruptRequested) this.setBridgeRunState("interrupting", "開始後に中断します", this.activeTurnId);
         }
         return;
       }
@@ -942,6 +939,7 @@ class SharedBridge {
       }
 
       if (msg.method === "item/agentMessage/delta") {
+        this.flushPendingInterrupt();
         this.streamingStarted = true;
         this.setBridgeRunState("streaming", "回答生成中", this.activeTurnId);
         this.emit("assistantDelta", { text: msg.params.delta });
@@ -949,6 +947,7 @@ class SharedBridge {
       }
 
       if (msg.method === "item/started") {
+        this.flushPendingInterrupt();
         const text = summarizeLiveItem(msg.params.item, "started");
         if (text) this.emit("status", { text });
         return;
@@ -1018,6 +1017,12 @@ class SharedBridge {
     this.setBridgeRunState("interrupting", "中断中", turnId);
     this.emit("status", { text: "処理の中断を要求しました。" });
     return true;
+  }
+
+  flushPendingInterrupt() {
+    if (!this.interruptRequested || !this.activeTurnId) return;
+    this.interruptRequested = false;
+    this.sendTurnInterrupt(this.activeTurnId);
   }
 
   interrupt() {
