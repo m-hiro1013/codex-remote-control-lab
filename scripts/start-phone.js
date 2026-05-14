@@ -752,6 +752,50 @@ function safeWorkdirPath(input) {
   return safePathWithin(workdir, input);
 }
 
+function safeDirectoryPath(input, base = os.homedir()) {
+  const raw = String(input || base);
+  const resolvedBase = path.resolve(base);
+  const resolved = path.resolve(raw);
+  try {
+    const realBase = fs.realpathSync(resolvedBase);
+    const realTarget = fs.realpathSync(resolved);
+    const stat = fs.statSync(realTarget);
+    if (!stat.isDirectory()) return null;
+    if (realTarget !== realBase && !realTarget.startsWith(`${realBase}${path.sep}`)) return null;
+    return {
+      absolute: realTarget,
+      name: path.basename(realTarget) || realTarget,
+      parent: realTarget === realBase ? null : path.dirname(realTarget),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readDirectoryListing(input, showHidden = false, base = os.homedir()) {
+  const directory = safeDirectoryPath(input || base, base);
+  if (!directory) return null;
+  let children;
+  try {
+    children = fs.readdirSync(directory.absolute, { withFileTypes: true });
+  } catch {
+    children = [];
+  }
+  const entries = children
+    .filter((entry) => entry.isDirectory())
+    .filter((entry) => showHidden || !entry.name.startsWith("."))
+    .map((entry) => ({ name: entry.name, path: path.join(directory.absolute, entry.name) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return {
+    root: safeDirectoryPath(base, base)?.absolute || path.resolve(base),
+    path: directory.absolute,
+    name: directory.name,
+    parent: directory.parent,
+    entries,
+  };
+}
+
 function safeOpenPath(input) {
   const workspacePath = safeWorkdirPath(input);
   if (workspacePath) {
@@ -1060,6 +1104,57 @@ function readAutomations() {
     });
 }
 
+function firstMarkdownHeading(markdown) {
+  return String(markdown || "").match(/^#\s+(.+)$/m)?.[1]?.trim() || "";
+}
+
+function skillDescription(markdown) {
+  const frontmatter = String(markdown || "").match(/^---\n([\s\S]*?)\n---/);
+  const frontmatterDescription = frontmatter?.[1].match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  if (frontmatterDescription) return frontmatterDescription.replace(/^["']|["']$/g, "");
+  return firstMarkdownHeading(markdown);
+}
+
+function readSkillsFrom(rootDir, source) {
+  if (!fs.existsSync(rootDir)) return [];
+  return fs
+    .readdirSync(rootDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const skillFile = path.join(rootDir, entry.name, "SKILL.md");
+      if (!fs.existsSync(skillFile)) return null;
+      const raw = fs.readFileSync(skillFile, "utf8");
+      return {
+        name: entry.name,
+        description: skillDescription(raw),
+        source,
+      };
+    })
+    .filter(Boolean);
+}
+
+function readSkills(options = {}) {
+  const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+  const codexSkillsDir = Object.prototype.hasOwnProperty.call(options, "codexSkillsDir") ? options.codexSkillsDir : path.join(codexHome, "skills");
+  const agentSkillsDir = Object.prototype.hasOwnProperty.call(options, "agentSkillsDir")
+    ? options.agentSkillsDir
+    : path.join(os.homedir(), ".agents", "skills");
+  const roots = [
+    { path: codexSkillsDir, source: "codex" },
+    { path: agentSkillsDir, source: "agents" },
+  ].filter((rootInfo) => rootInfo.path);
+  const seen = new Set();
+  const skills = [];
+  for (const rootInfo of roots) {
+    for (const skill of readSkillsFrom(rootInfo.path, rootInfo.source)) {
+      if (seen.has(skill.name)) continue;
+      seen.add(skill.name);
+      skills.push(skill);
+    }
+  }
+  return skills.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function saveDataUrlAttachment(attachment) {
   const match = String(attachment.dataUrl || "").match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return null;
@@ -1080,12 +1175,12 @@ function saveDataUrlAttachment(attachment) {
   };
 }
 
-function sandboxPolicyForMode(mode) {
+function sandboxPolicyForMode(mode, cwd = workdir) {
   if (mode === "danger-full-access") return { type: "dangerFullAccess" };
   if (mode === "read-only") return { type: "readOnly", networkAccess: true };
   return {
     type: "workspaceWrite",
-    writableRoots: [workdir],
+    writableRoots: [cwd],
     networkAccess: true,
     excludeTmpdirEnvVar: false,
     excludeSlashTmp: false,
@@ -1337,9 +1432,10 @@ function summarizeClaudeAttachmentPrompt(text, savedAttachments) {
 }
 
 class SharedBridge {
-  constructor(requestedThreadId, bridgeKey) {
+  constructor(requestedThreadId, bridgeKey, options = {}) {
     this.requestedThreadId = requestedThreadId;
     this.bridgeKey = bridgeKey;
+    this.cwd = options.cwd || workdir;
     this.clients = new Set();
     this.nextId = 1;
     this.pending = new Map();
@@ -1376,7 +1472,7 @@ class SharedBridge {
       provider: agentProvider,
       threadId: this.threadId,
       model,
-      workdir,
+      workdir: this.cwd,
       ...currentWorkspaceMeta(),
       shared: true,
       clients: this.clients.size,
@@ -1468,13 +1564,13 @@ class SharedBridge {
         ? {
             threadId: this.requestedThreadId,
             model,
-            cwd: workdir,
+            cwd: this.cwd,
             approvalPolicy: "on-request",
             sandbox: "workspace-write",
           }
         : {
             model,
-            cwd: workdir,
+            cwd: this.cwd,
             approvalPolicy: "on-request",
             sandbox: "workspace-write",
           };
@@ -1495,6 +1591,9 @@ class SharedBridge {
           return;
         }
         this.threadId = msg.result.thread.id;
+        if (this.requestedThreadId) {
+          threadCwdMap.set(this.threadId, this.cwd);
+        }
         this.startupFailed = false;
         this.promoteBridgeKey();
         this.ready = true;
@@ -1684,7 +1783,7 @@ class SharedBridge {
     if (!this.threadId || !historySyncEnabled) return;
     runHistorySync({
       threadId: this.threadId,
-      workdir,
+      workdir: this.cwd,
       request: appServerRequest,
       enabled: historySyncEnabled,
     })
@@ -1713,7 +1812,7 @@ class SharedBridge {
     };
     if (options.model) params.model = options.model;
     if (options.approvalPolicy) params.approvalPolicy = options.approvalPolicy;
-    if (options.sandboxMode) params.sandboxPolicy = sandboxPolicyForMode(options.sandboxMode);
+    if (options.sandboxMode) params.sandboxPolicy = sandboxPolicyForMode(options.sandboxMode, this.cwd);
     const id = this.request("turn/start", {
       ...params,
     });
@@ -1750,250 +1849,22 @@ class SharedBridge {
   }
 }
 
-class ClaudeBridge {
-  constructor(requestedThreadId, bridgeKey) {
-    this.requestedThreadId = requestedThreadId;
-    this.bridgeKey = bridgeKey;
-    this.clients = new Set();
-    this.threadId = requestedThreadId || `claude:${crypto.randomUUID()}`;
-    this.claudeSessionId = requestedThreadId && !requestedThreadId.startsWith("claude:") ? requestedThreadId : null;
-    this.activeTurnId = null;
-    this.ready = true;
-    this.history = this.claudeSessionId ? claudeHistoryForSession(this.claudeSessionId) : [];
-    this.turnQueue = [];
-    this.activeProcess = null;
-    this.streamingStarted = false;
-  }
+const threadCwdMap = new Map();
 
-  addClient(browser) {
-    this.clients.add(browser);
-    this.emitTo(browser, "status", { text: "共有Claudeブリッジに参加しました。" });
-    this.emitTo(browser, "ready", this.readyPayload());
-    browser.on("close", () => {
-      this.clients.delete(browser);
-      if (shouldDisposeIdleBridge({ clientCount: this.clients.size })) {
-        this.dispose();
-        bridges.delete(this.bridgeKey);
-      }
-    });
-  }
-
-  readyPayload() {
-    return {
-      provider: agentProvider,
-      threadId: this.threadId,
-      model,
-      workdir,
-      shared: true,
-      clients: this.clients.size,
-      history: this.history,
-    };
-  }
-
-  emit(type, payload = {}) {
-    const body = JSON.stringify({ type, ...payload });
-    for (const client of this.clients) {
-      if (client.readyState === WebSocket.OPEN) client.send(body);
-    }
-  }
-
-  emitTo(client, type, payload = {}) {
-    if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type, ...payload }));
-  }
-
-  promoteBridgeKey() {
-    if (!this.claudeSessionId || this.bridgeKey === this.claudeSessionId) return;
-    const previousKey = this.bridgeKey;
-    if (bridges.has(this.claudeSessionId) && bridges.get(this.claudeSessionId) !== this) return;
-    if (bridges.get(previousKey) !== this) return;
-    this.threadId = this.claudeSessionId;
-    this.bridgeKey = this.claudeSessionId;
-    bridges.delete(previousKey);
-    bridges.set(this.bridgeKey, this);
-    this.emit("ready", this.readyPayload());
-  }
-
-  dispose() {
-    this.turnQueue = [];
-    this.activeTurnId = null;
-    this.streamingStarted = false;
-    if (this.activeProcess) {
-      const child = this.activeProcess;
-      this.activeProcess = null;
-      if (!child.killed) child.kill("SIGTERM");
-    }
-  }
-
-  prompt(text, attachments = [], options = {}) {
-    if (this.activeTurnId || this.activeProcess) {
-      this.turnQueue.push({ text, attachments, options });
-      this.emit("status", { text: `キューに追加しました（${this.turnQueue.length}件待機）` });
-      return;
-    }
-    this.startPrompt(text, attachments, options);
-  }
-
-  startNextQueuedTurn() {
-    if (this.activeTurnId || this.activeProcess || !this.turnQueue.length) return;
-    const next = this.turnQueue.shift();
-    this.emit("status", { text: `キューから送信中（残り${this.turnQueue.length}件）` });
-    this.startPrompt(next.text, next.attachments, next.options);
-  }
-
-  startPrompt(text, attachments = [], options = {}) {
-    const savedAttachments = [];
-    const savedImages = [];
-    for (const attachment of attachments || []) {
-      const saved = saveDataUrlAttachment(attachment);
-      if (!saved) continue;
-      savedAttachments.push({ ...saved.preview, absolutePath: saved.input.path });
-      savedImages.push(saved.preview);
-    }
-
-    const promptText = summarizeClaudeAttachmentPrompt(text, savedAttachments);
-    const displayText = savedAttachments.length
-      ? `${text || "添付ファイルを確認してください。"}\n\n添付: ${savedAttachments.map((file) => file.name).join(", ")}`
-      : text;
-    const turnId = `claude-turn:${crypto.randomUUID()}`;
-    this.activeTurnId = turnId;
-    this.streamingStarted = false;
-    this.appendHistory({ type: "user", text: displayText, attachments: savedImages });
-    this.emit("user", { text: displayText, attachments: savedImages });
-    this.emit("turn", { status: "started", turnId });
-
-    const args = [
-      "-p",
-      "--output-format",
-      "stream-json",
-      "--verbose",
-      "--include-partial-messages",
-      "--model",
-      options.model || model,
-      "--permission-mode",
-      claudePermissionMode(options),
-    ];
-    if (this.claudeSessionId) args.push("--resume", this.claudeSessionId);
-
-    const child = spawn(claudeBin, args, {
-      cwd: workdir,
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    child.stdin.on("error", (error) => {
-      this.emit("status", { text: `Claude prompt input closed early: ${error.message}` });
-    });
-    try {
-      child.stdin.end(promptText);
-    } catch (error) {
-      this.emit("status", { text: `Claude prompt input failed: ${error.message}` });
-    }
-    this.activeProcess = child;
-    let stdoutBuffer = "";
-    let stderrBuffer = "";
-    let assistantText = "";
-
-    const clearActiveProcess = () => {
-      if (this.activeProcess !== child && this.activeTurnId !== turnId) return false;
-      this.activeProcess = null;
-      this.activeTurnId = null;
-      this.streamingStarted = false;
-      return true;
-    };
-
-    const handleLine = (line) => {
-      if (!line.trim()) return;
-      let msg;
-      try {
-        msg = JSON.parse(line);
-      } catch {
-        this.emit("status", { text: line.slice(0, 500) });
-        return;
-      }
-      if (msg.session_id) {
-        this.claudeSessionId = msg.session_id;
-        this.promoteBridgeKey();
-      }
-      if (msg.type === "system" && msg.subtype === "init") {
-        this.emit("status", { text: `Claude session ready: ${msg.session_id || this.threadId}` });
-        return;
-      }
-      if (msg.type === "system" && msg.subtype === "api_retry") {
-        this.emit("status", { text: `Claude API retry ${msg.attempt}/${msg.max_retries}` });
-        return;
-      }
-      const delta = msg.type === "stream_event" && msg.event?.delta?.type === "text_delta" ? msg.event.delta.text : "";
-      if (delta) {
-        assistantText += delta;
-        this.emit("assistantDelta", { text: delta });
-        return;
-      }
-      if (msg.type === "result") {
-        if (!assistantText && msg.result) {
-          assistantText = String(msg.result);
-          this.emit("assistantDelta", { text: assistantText });
-        }
-      }
-    };
-
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdoutBuffer += chunk;
-      const lines = stdoutBuffer.split(/\r?\n/);
-      stdoutBuffer = lines.pop() || "";
-      for (const line of lines) handleLine(line);
-    });
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => {
-      stderrBuffer += chunk;
-      const lines = stderrBuffer.split(/\r?\n/);
-      stderrBuffer = lines.pop() || "";
-      for (const line of lines) {
-        if (line.trim()) this.emit("status", { text: line.slice(0, 500) });
-      }
-    });
-    child.on("error", (error) => {
-      if (!clearActiveProcess()) return;
-      this.emit("error", { text: `Claudeを起動できませんでした: ${error.message}` });
-      this.startNextQueuedTurn();
-    });
-    child.on("exit", (code, signal) => {
-      if (!clearActiveProcess()) return;
-      if (stdoutBuffer.trim()) handleLine(stdoutBuffer);
-      if (code === 0) {
-        if (assistantText.trim()) this.appendHistory({ type: "assistant", text: assistantText, outputGroup: turnId });
-        this.emit("turn", { status: "completed", turnId });
-      } else {
-        const reason = signal ? `signal=${signal}` : `code=${code}`;
-        const message = `Claude process exited (${reason})${stderrBuffer.trim() ? `: ${stderrBuffer.trim().slice(-1000)}` : ""}`;
-        this.emit("error", { text: message });
-      }
-      this.startNextQueuedTurn();
-    });
-  }
-
-  appendHistory(entry) {
-    this.history.push(entry);
-    this.history = capHistory(this.history);
-  }
-
-  approval() {
-    this.emit("status", { text: "Claude headless providerでは実行中の承認応答は未対応です。" });
-  }
-}
-
-function getBridge(threadId, connectionId = crypto.randomUUID()) {
-  if (!threadId) {
+function getBridge(threadId, connectionId = crypto.randomUUID(), options = {}) {
+  if (!threadId && !options.forceNew) {
     for (const bridge of bridges.values()) {
       if (!bridge.requestedThreadId) return bridge;
     }
   }
-  const key = bridgeKeyForRequest(threadId, connectionId);
-  if (!bridges.has(key)) bridges.set(key, isClaudeProvider ? new ClaudeBridge(threadId, key) : new SharedBridge(threadId, key));
+  const key = options.forceNew && !threadId ? `new:${connectionId}` : bridgeKeyForRequest(threadId, connectionId);
+  const cwd = options.cwd || (threadId ? threadCwdMap.get(threadId) : undefined) || workdir;
+  if (!bridges.has(key)) bridges.set(key, new SharedBridge(threadId, key, { cwd }));
   return bridges.get(key);
 }
 
-function bindBrowser(browser, phoneToken, threadId) {
-  const bridge = getBridge(threadId);
+function bindBrowser(browser, phoneToken, threadId, options = {}) {
+  const bridge = getBridge(threadId, crypto.randomUUID(), options);
   bridge.addClient(browser);
 
   browser.on("message", (data) => {
@@ -2172,6 +2043,7 @@ async function main() {
         codexPort,
         bridges: Array.from(bridges.values()).map((bridge) => ({
           threadId: bridge.threadId,
+          workdir: bridge.cwd,
           clients: bridge.clients.size,
           ready: bridge.ready,
           provider: agentProvider,
@@ -2245,6 +2117,27 @@ async function main() {
     if (url.pathname === "/api/automations") {
       if (!requireToken(url, phoneToken, res)) return;
       sendJson(res, 200, { data: readAutomations() });
+      return;
+    }
+    if (url.pathname === "/api/skills") {
+      if (!requireToken(url, phoneToken, res)) return;
+      sendJson(res, 200, { data: readSkills() });
+      return;
+    }
+    if (url.pathname === "/api/fs/root") {
+      if (!requireToken(url, phoneToken, res)) return;
+      const home = safeDirectoryPath(os.homedir(), os.homedir());
+      sendJson(res, 200, { root: home?.absolute || os.homedir() });
+      return;
+    }
+    if (url.pathname === "/api/fs/list") {
+      if (!requireToken(url, phoneToken, res)) return;
+      const listing = readDirectoryListing(url.searchParams.get("path"), url.searchParams.get("hidden") === "1", os.homedir());
+      if (!listing) {
+        sendJson(res, 404, { error: "directory not found or outside home" });
+        return;
+      }
+      sendJson(res, 200, listing);
       return;
     }
     if (url.pathname === "/api/artifacts") {
@@ -2336,7 +2229,16 @@ async function main() {
       return;
     }
     const threadId = url.searchParams.get("thread") || null;
-    wss.handleUpgrade(req, socket, head, (ws) => bindBrowser(ws, phoneToken, threadId));
+    const requestedCwd = url.searchParams.get("cwd");
+    const safeCwd = requestedCwd ? safeDirectoryPath(requestedCwd, os.homedir()) : null;
+    if (requestedCwd && !safeCwd) {
+      socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) =>
+      bindBrowser(ws, phoneToken, threadId, { forceNew: url.searchParams.get("new") === "1", cwd: safeCwd?.absolute }),
+    );
   });
 
   server.listen(uiPort, listenHost, () => {
@@ -2388,8 +2290,11 @@ if (require.main === module) {
     mergeSkillEntries,
     parseRefreshCommand,
     relativeDisplayPath,
+    readDirectoryListing,
+    readSkills,
     reviewSummary,
     runGit,
+    safeDirectoryPath,
     safeOpenPath,
     safePathWithin,
     safeRelativePath,

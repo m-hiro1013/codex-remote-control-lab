@@ -17,7 +17,10 @@ const {
   installedSkillsFromPluginMarketplaces,
   mergeSkillEntries,
   parseRefreshCommand,
+  readDirectoryListing,
+  readSkills,
   reviewSummary,
+  safeDirectoryPath,
   safeOpenPath,
 } = require("./start-phone");
 
@@ -65,6 +68,46 @@ test("reviewSummary marks CODEX_WORKDIR git paths as openable", async () => {
   assert.equal(reviewFile?.kind, "markdown");
   assert.equal(spacedFile?.openable, true);
   assert.equal(spacedFile?.additions, 1);
+});
+
+test("safeDirectoryPath and readDirectoryListing stay inside the provided root", () => {
+  const homeRoot = path.join(tempRoot, "home");
+  const child = path.join(homeRoot, "project-a");
+  const hidden = path.join(homeRoot, ".hidden-project");
+  const outside = path.join(tempRoot, "outside-home");
+  const outsideLink = path.join(homeRoot, "outside-link");
+  fs.mkdirSync(child, { recursive: true });
+  fs.mkdirSync(hidden, { recursive: true });
+  fs.mkdirSync(outside, { recursive: true });
+  fs.symlinkSync(outside, outsideLink, "dir");
+
+  assert.equal(safeDirectoryPath(child, homeRoot)?.absolute, fs.realpathSync(child));
+  assert.equal(safeDirectoryPath(path.dirname(homeRoot), homeRoot), null);
+  assert.equal(safeDirectoryPath(outsideLink, homeRoot), null);
+
+  const visibleListing = readDirectoryListing(homeRoot, false, homeRoot);
+  assert.deepEqual(visibleListing.entries.map((entry) => entry.name), ["project-a"]);
+
+  const hiddenListing = readDirectoryListing(homeRoot, true, homeRoot);
+  assert.deepEqual(hiddenListing.entries.map((entry) => entry.name), [".hidden-project", "project-a"]);
+});
+
+test("readSkills returns public skill metadata without absolute paths", () => {
+  const codexHome = path.join(tempRoot, "read-skills-home");
+  const skillDir = path.join(codexHome, "skills", "sample-skill");
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(skillDir, "SKILL.md"),
+    "---\ndescription: Sample workflow\n---\n\n# Sample Skill\n",
+    "utf8",
+  );
+
+  const skills = readSkills({ codexSkillsDir: path.join(codexHome, "skills"), agentSkillsDir: "" });
+  assert.deepEqual(skills, [
+    { name: "sample-skill", description: "Sample workflow", source: "codex" },
+  ]);
+  assert.deepEqual(Object.keys(skills[0]).sort(), ["description", "name", "source"]);
+  assert.equal(JSON.stringify(skills).includes(codexHome), false);
 });
 
 test("installedSkillsFromPluginMarketplaces reads installed plugin SKILL.md files", () => {
