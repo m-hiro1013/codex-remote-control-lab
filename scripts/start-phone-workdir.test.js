@@ -113,6 +113,14 @@ test("missing thread errors are detected narrowly for stale resume recovery", ()
   assert.equal(isMissingThreadError("API key not found"), false);
 });
 
+test("upstream disconnect cleanup preserves queued turns instead of restarting on a closed socket", () => {
+  const source = fs.readFileSync(path.join(__dirname, "start-phone.js"), "utf8");
+
+  assert.match(source, /finishInterruptedTurn\(error\.message,\s*\{\s*restartQueued:\s*false\s*\}\)/);
+  assert.match(source, /finishInterruptedTurn\(reason,\s*\{\s*restartQueued\s*=\s*true\s*\}\s*=\s*\{\s*\}\)/);
+  assert.match(source, /if \(restartQueued\) this\.startNextQueuedTurn\(\);/);
+});
+
 test("safeDirectoryPath and readDirectoryListing stay inside the provided root", () => {
   const homeRoot = path.join(tempRoot, "home");
   const child = path.join(homeRoot, "project-a");

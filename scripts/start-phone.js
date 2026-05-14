@@ -6,6 +6,7 @@ const os = require("os");
 const path = require("path");
 const { execFile, spawn } = require("child_process");
 const WebSocket = require("ws");
+const { approvalRecordForClient, approvalResultForDecision, createApprovalStore, isApprovalRequest } = require("./approval-store");
 const { bridgeKeyForRequest, shouldDisposeIdleBridge, shouldPromoteBridgeKey } = require("./bridge-state");
 const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
 const { bridgeUrls, notifyBridgeUrls, notifyTaskEvent } = require("./phone-notify");
@@ -93,6 +94,7 @@ const rateLimitCacheTtlMs = positiveNumber(process.env.PHONE_RATE_LIMIT_CACHE_TT
 const rateLimitRefreshTimeoutMs = positiveNumber(process.env.PHONE_RATE_LIMIT_REFRESH_TIMEOUT_MS, 6000);
 const uploadDir = path.join(root, ".uploads");
 const bridges = new Map();
+const approvalStore = createApprovalStore();
 let notificationBridgeUrls = [];
 const historyLimit = 80;
 const modelOptions = isClaudeProvider
@@ -1492,6 +1494,8 @@ class SharedBridge {
     this.startupFailed = false;
     this.history = [];
     this.turnQueue = [];
+    this.approvalPolicy = "on-request";
+    this.sandboxMode = "workspace-write";
     this.runState = { state: "connecting", label: "接続中", turnId: null, updatedAt: Date.now() };
     this.streamingStarted = false;
     this.interruptRequested = false;
@@ -1509,6 +1513,7 @@ class SharedBridge {
     browser.on("close", () => {
       this.clients.delete(browser);
       if (shouldDisposeIdleBridge({ clientCount: this.clients.size, ready: this.ready })) {
+        approvalStore.clearForBridge(this.bridgeKey, "closed");
         this.upstream.close();
         bridges.delete(this.bridgeKey);
       }
@@ -1525,8 +1530,16 @@ class SharedBridge {
       shared: true,
       clients: this.clients.size,
       history: this.history,
+      pendingApprovals: this.pendingApprovalSummaries(),
       run: this.runPayload(),
     };
+  }
+
+  pendingApprovalSummaries() {
+    return approvalStore
+      .list({ status: "pending", bridgeKey: this.bridgeKey })
+      .map((record) => approvalRecordForClient(record))
+      .filter(Boolean);
   }
 
   emit(type, payload = {}) {
@@ -1749,9 +1762,21 @@ class SharedBridge {
         return;
       }
 
-      if (msg.method && msg.method.endsWith("/requestApproval")) {
+      if (isApprovalRequest(msg)) {
+        const approval = approvalRecordForClient(
+          approvalStore.register({
+            bridgeKey: this.bridgeKey,
+            threadId: this.threadId,
+            turnId: this.activeTurnId,
+            request: msg,
+          }),
+        );
+        if (approval && this.shouldAutoApprove()) {
+          this.approval(approval.approvalId, "accept", { auto: true });
+          return;
+        }
         this.setBridgeRunState("approval", "承認待ち", this.activeTurnId);
-        this.emit("approval", { request: msg });
+        this.emit("approval", { approval, request: msg });
         notifyRunEvent("approval", {
           threadId: this.threadId,
           turnId: this.activeTurnId,
@@ -1777,9 +1802,11 @@ class SharedBridge {
       this.interruptRequested = false;
       this.setBridgeRunState("error", "接続エラー", this.activeTurnId);
       this.emit("error", { text: error.message });
+      this.finishInterruptedTurn(error.message, { restartQueued: false });
     });
     this.upstream.on("close", () => {
       if (!this.ready) this.startupFailed = true;
+      approvalStore.clearForBridge(this.bridgeKey, "closed");
       this.markUpstreamClosed("Codex接続が閉じました。再接続ボタンを押してください。");
     });
   }
@@ -1858,6 +1885,17 @@ class SharedBridge {
     this.startPrompt(next.text, next.attachments, next.options);
   }
 
+  finishInterruptedTurn(reason, { restartQueued = true } = {}) {
+    const hadActiveTurn = Boolean(this.activeTurnId || this.hasPendingTurnStart());
+    this.activeTurnId = null;
+    for (const [id, method] of this.pending) {
+      if (method === "turn/start") this.pending.delete(id);
+    }
+    approvalStore.clearForBridge(this.bridgeKey, "interrupted");
+    if (hadActiveTurn) this.emit("turn", { status: "interrupted", reason });
+    if (restartQueued) this.startNextQueuedTurn();
+  }
+
   syncHistory(reason) {
     if (!this.threadId || !historySyncEnabled) return;
     runHistorySync({
@@ -1890,8 +1928,14 @@ class SharedBridge {
       input,
     };
     if (options.model) params.model = options.model;
-    if (options.approvalPolicy) params.approvalPolicy = options.approvalPolicy;
-    if (options.sandboxMode) params.sandboxPolicy = sandboxPolicyForMode(options.sandboxMode, this.cwd);
+    if (options.approvalPolicy) {
+      params.approvalPolicy = options.approvalPolicy;
+      this.approvalPolicy = options.approvalPolicy;
+    }
+    if (options.sandboxMode) {
+      params.sandboxPolicy = sandboxPolicyForMode(options.sandboxMode, this.cwd);
+      this.sandboxMode = options.sandboxMode;
+    }
     const id = this.request("turn/start", {
       ...params,
     });
@@ -1908,23 +1952,27 @@ class SharedBridge {
     this.history = capHistory(this.history);
   }
 
-  approval(requestMsg, decision) {
-    if (!requestMsg || !requestMsg.id || !requestMsg.method) return;
-    const accept = decision === "accept";
-    let result;
-    if (requestMsg.method === "item/commandExecution/requestApproval") {
-      result = { decision: accept ? "accept" : "decline" };
-    } else if (requestMsg.method === "item/fileChange/requestApproval") {
-      result = { decision: accept ? "accept" : "decline" };
-    } else {
-      result = accept ? { decision: "accept" } : { decision: "decline" };
+  shouldAutoApprove() {
+    return this.approvalPolicy === "never" && this.sandboxMode === "danger-full-access";
+  }
+
+  approval(approvalIdOrRequest, decision, options = {}) {
+    const approvalId =
+      typeof approvalIdOrRequest === "string" ? approvalIdOrRequest : approvalIdOrRequest?.approvalId || `${this.bridgeKey}:${approvalIdOrRequest?.id}`;
+    const result = approvalStore.resolveDetailed(approvalId, decision);
+    if (result.status !== "resolved") {
+      this.emit("approvalResolved", { approvalId, status: result.status });
+      this.emit("status", { text: "承認状態を最新に同期しました。" });
+      return;
     }
+    const record = result.record;
     if (!this.upstream || this.upstream.readyState !== WebSocket.OPEN) {
       this.markUpstreamClosed();
       return;
     }
-    this.upstream.send(JSON.stringify({ id: requestMsg.id, result }));
-    this.emit("status", { text: accept ? "承認しました" : "拒否しました" });
+    this.upstream.send(JSON.stringify({ id: record.request.id, result: approvalResultForDecision(record.request, decision, { acceptForSession: options.auto }) }));
+    this.emit("approvalResolved", { approvalId, status: "resolved", decision: record.decision, auto: Boolean(options.auto) });
+    this.emit("status", { text: options.auto ? "フルアクセス設定により承認を自動処理しました。" : decision === "accept" ? "承認しました" : "拒否しました" });
   }
 }
 
@@ -1967,7 +2015,7 @@ function bindBrowser(browser, phoneToken, threadId, options = {}) {
       if (typeof bridge.interrupt === "function") bridge.interrupt();
       else bridge.emitTo(browser, "status", { text: `${providerLabel()} providerでは実行中の中断は未対応です。` });
     }
-    if (msg.type === "approval") bridge.approval(msg.request, msg.decision);
+    if (msg.type === "approval") bridge.approval(msg.approvalId || msg.request, msg.decision);
   });
 }
 

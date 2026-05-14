@@ -2143,10 +2143,17 @@ function connect() {
       return;
     }
     if (msg.type === "approval") {
-      pendingApproval = msg.request;
+      pendingApproval = msg.approval || msg.request;
       setRunState("approval");
-      approvalText.textContent = JSON.stringify(msg.request.params, null, 2);
+      approvalText.textContent = JSON.stringify((msg.approval || msg.request).params || {}, null, 2);
       approval.classList.remove("hidden");
+      return;
+    }
+    if (msg.type === "approvalResolved") {
+      if (!pendingApproval || pendingApproval.approvalId === msg.approvalId) {
+        pendingApproval = null;
+        approval.classList.add("hidden");
+      }
       return;
     }
     if (msg.type === "runState") {
@@ -2161,6 +2168,14 @@ function connect() {
       loadThreads();
       refreshSelectedThread();
       appendReviewDigest();
+      return;
+    }
+    if (msg.type === "turn" && msg.status === "interrupted") {
+      liveTurnActive = false;
+      assistantEntry = null;
+      pendingApproval = null;
+      approval.classList.add("hidden");
+      setRunState("error", msg.reason || "処理が中断されました");
       return;
     }
     if (msg.type === "error") {
@@ -2257,7 +2272,7 @@ interruptButton?.addEventListener("click", () => {
 
 approveButton.addEventListener("click", () => {
   if (!pendingApproval) return;
-  ws.send(JSON.stringify({ type: "approval", token, decision: "accept", request: pendingApproval }));
+  ws.send(JSON.stringify({ type: "approval", token, decision: "accept", approvalId: pendingApproval.approvalId, request: pendingApproval }));
   approval.classList.add("hidden");
   pendingApproval = null;
   setRunState("running", "承認済み・処理中");
@@ -2265,7 +2280,7 @@ approveButton.addEventListener("click", () => {
 
 declineButton.addEventListener("click", () => {
   if (!pendingApproval) return;
-  ws.send(JSON.stringify({ type: "approval", token, decision: "decline", request: pendingApproval }));
+  ws.send(JSON.stringify({ type: "approval", token, decision: "decline", approvalId: pendingApproval.approvalId, request: pendingApproval }));
   approval.classList.add("hidden");
   pendingApproval = null;
   setRunState("running", "拒否済み・処理中");
