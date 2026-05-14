@@ -10,7 +10,7 @@
 置き換える placeholder:
 
 - `<repo-root>`: local clone の absolute path
-- `<log-dir>`: local log directory の absolute path
+- `<log-dir>`: local log directory の absolute path。この directory は事前に作成し、書き込み可能にしておいてください。
 
 実値入り launchd file は commit しないでください。local folder name、local log path、notification topic、その他の machine-specific value を含み得ます。
 

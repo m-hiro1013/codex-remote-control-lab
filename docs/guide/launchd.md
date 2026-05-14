@@ -10,7 +10,7 @@ Before using either example, copy it outside the repository, replace placeholder
 Required placeholders:
 
 - `<repo-root>`: absolute path to your local clone
-- `<log-dir>`: absolute path to a local log directory
+- `<log-dir>`: absolute path to a local log directory that already exists and is writable
 
 Do not commit filled launchd files. They may contain local folder names, local log paths, notification topics, or other machine-specific values.
 

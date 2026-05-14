@@ -10,10 +10,9 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/env</string>
-    <string>npm</string>
-    <string>run</string>
-    <string>phone</string>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>npm run phone</string>
   </array>
 
   <key>EnvironmentVariables</key>
