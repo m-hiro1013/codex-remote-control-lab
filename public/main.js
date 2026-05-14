@@ -1,5 +1,7 @@
 const log = document.querySelector("#log");
 const meta = document.querySelector("#meta");
+const headerCwd = document.querySelector("#headerCwd");
+const pathbarColorPicker = document.querySelector("#pathbarColorPicker");
 const connectButton = document.querySelector("#connect");
 const newThreadButton = document.querySelector("#newThread");
 const searchButton = document.querySelector("#searchButton");
@@ -7,6 +9,28 @@ const pluginsButton = document.querySelector("#pluginsButton");
 const automationsButton = document.querySelector("#automationsButton");
 const settingsButton = document.querySelector("#settingsButton");
 const menuButton = document.querySelector("#menuButton");
+const modeButtons = document.querySelectorAll("[data-main-mode]");
+const terminalStatus = document.querySelector("#terminalStatus");
+const terminalSessionMeta = document.querySelector("#terminalSessionMeta");
+const terminalHost = document.querySelector("#terminalHost");
+const terminalFallback = document.querySelector("#terminalFallback");
+const terminalReconnect = document.querySelector("#terminalReconnect");
+const terminalThemeToggle = document.querySelector("#terminalThemeToggle");
+const terminalZoomOut = document.querySelector("#terminalZoomOut");
+const terminalZoomIn = document.querySelector("#terminalZoomIn");
+const terminalFontSizeLabel = document.querySelector("#terminalFontSizeLabel");
+const terminalInputArea = document.querySelector("#terminalInputArea");
+const terminalPrompt = document.querySelector("#terminalPrompt");
+const terminalSend = document.querySelector("#terminalSend");
+const terminalModeButtons = document.querySelectorAll("[data-terminal-input-mode]");
+const terminalPanels = document.querySelectorAll("[data-terminal-panel]");
+const terminalNativeInputButtons = document.querySelectorAll("[data-terminal-pty-input]");
+const terminalActionButtons = document.querySelectorAll("[data-terminal-action]");
+const terminalCtrlCButton = document.querySelector("[data-terminal-ctrl-c]");
+const terminalCtrlCConfirm = document.querySelector("#terminalCtrlCConfirm");
+const terminalCtrlCCancel = document.querySelector("#terminalCtrlCCancel");
+const terminalCtrlCConfirmButton = document.querySelector("#terminalCtrlCConfirmButton");
+const terminalFileInput = document.querySelector("#terminalFileInput");
 const closePanelButton = document.querySelector("#closePanelButton");
 const addButton = document.querySelector("#addButton");
 const accessButton = document.querySelector("#accessButton");
@@ -34,6 +58,23 @@ const runStateLabel = document.querySelector("#runStateLabel");
 const threadList = document.querySelector("#threadList");
 const threadSearch = document.querySelector("#threadSearch");
 const threadTitle = document.querySelector("#threadTitle");
+const sessionSwitcher = document.querySelector("#sessionSwitcher");
+const sessionCountPill = document.querySelector("#sessionCountPill");
+const sessionCreatePage = document.querySelector("#sessionCreatePage");
+const sessionCreateCancel = document.querySelector("#sessionCreateCancel");
+const sessionSelectedCwd = document.querySelector("#sessionSelectedCwd");
+const sessionRecentList = document.querySelector("#sessionRecentList");
+const sessionRecentClear = document.querySelector("#sessionRecentClear");
+const sessionBrowserUp = document.querySelector("#sessionBrowserUp");
+const sessionBrowserPath = document.querySelector("#sessionBrowserPath");
+const sessionBrowserList = document.querySelector("#sessionBrowserList");
+const sessionDirectorySearch = document.querySelector("#sessionDirectorySearch");
+const sessionStartButton = document.querySelector("#sessionStartButton");
+const sessionHiddenToggle = document.querySelector("#sessionHiddenToggle");
+const sessionSwitcherOverlay = document.querySelector("#sessionSwitcherOverlay");
+const sessionSwitcherClose = document.querySelector("#sessionSwitcherClose");
+const sessionSwitcherNew = document.querySelector("#sessionSwitcherNew");
+const openSessionList = document.querySelector("#openSessionList");
 const composer = document.querySelector("#composer");
 const promptInput = document.querySelector("#prompt");
 const sendButton = document.querySelector("#send");
@@ -56,6 +97,41 @@ if (params.has("token") && window.history?.replaceState) {
   window.history.replaceState({}, document.title, cleanUrl);
 }
 
+const viewportMeta = document.querySelector('meta[name="viewport"]');
+const stableViewportContent = viewportMeta?.getAttribute("content") || "width=device-width, initial-scale=1, viewport-fit=cover";
+const resetViewportContent = stableViewportContent.includes("maximum-scale=1")
+  ? stableViewportContent
+  : `${stableViewportContent}, maximum-scale=1`;
+
+function isTextInputElement(element) {
+  if (!element) return false;
+  if (element.tagName === "TEXTAREA") return true;
+  if (element.tagName !== "INPUT") return false;
+  return !["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"].includes(element.type);
+}
+
+function resetViewportScaleAfterInput() {
+  if (!viewportMeta || !window.visualViewport || window.visualViewport.scale <= 1.01) return;
+  // iOS Safari は入力後の拡大状態を戻せないことがあるため、短時間だけ最大倍率を固定してから正規設定へ戻す。
+  viewportMeta.setAttribute("content", resetViewportContent);
+  requestAnimationFrame(() => {
+    window.scrollTo(window.scrollX, window.scrollY);
+    setTimeout(() => viewportMeta.setAttribute("content", stableViewportContent), 260);
+  });
+}
+
+document.addEventListener(
+  "focusout",
+  (event) => {
+    if (isTextInputElement(event.target)) resetViewportScaleAfterInput();
+  },
+  true,
+);
+window.addEventListener("orientationchange", () => setTimeout(resetViewportScaleAfterInput, 280));
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") resetViewportScaleAfterInput();
+});
+
 const themeOptions = [
   { id: "simple", name: "シンプル", detail: "静かなローカルコンソール" },
   { id: "cyberpunk", name: "サイバーパンク", detail: "緑の端末文字 / 流れるコード背景" },
@@ -70,6 +146,7 @@ let assistantEntry = null;
 let statusGroup = null;
 let threadCache = [];
 let liveTurnActive = false;
+let remoteSessionState = null;
 let lastHistorySignature = "";
 let lastThreadListError = "";
 let lastThreadRefreshError = "";
@@ -77,6 +154,15 @@ let selectedThreadRefreshActive = false;
 let selectedModel = localStorage.getItem("codexPhoneModel") || "";
 let selectedModelLabel = localStorage.getItem("codexPhoneModelLabel") || "5.5";
 let selectedReasoning = localStorage.getItem("codexPhoneReasoning") || "中";
+let activeMainMode = localStorage.getItem("codexMainMode") || "chat";
+let nativeTerminal = null;
+let terminalLongPressActive = false;
+const terminalFontSizes = [5, 6, 7, 8, 10, 12, 14, 16];
+let terminalFontSize = Number(localStorage.getItem("codexTerminalFontSize")) || 6;
+if (!terminalFontSizes.includes(terminalFontSize)) terminalFontSize = 6;
+let terminalThemeMode = localStorage.getItem("codexTerminalThemeMode") === "light" ? "light" : "dark";
+let terminalInputMode = localStorage.getItem("codexTerminalInputMode") === "keys" ? "keys" : "text";
+let terminalCopyFallbackDialog = null;
 let settingsRenderSeq = 0;
 let artifactItems = [];
 let activeArtifactPath = "";
@@ -84,13 +170,29 @@ let activePanel = "artifacts";
 let currentWorkdir = "";
 let nextThreadCwd = "";
 let forceNewThreadOnce = false;
+const openSessionsStorageKey = "codexRemoteOpenSessions";
+const activeSessionStorageKey = "codexRemoteLastActiveSessionKey";
+const resumeSessionStorageKey = "codexRemoteResumeSession";
+const cwdHistoryStorageKey = "codexRemoteCwdHistory";
+const maxCwdHistory = 8;
+let openSessions = readOpenSessions();
+let activeSessionKey = localStorage.getItem(activeSessionStorageKey) || "";
+let resumeCandidateSession = readResumeSession();
+let cwdHistory = readCwdHistory();
+let sessionCreateCwd = localStorage.getItem("codexRemoteLastCwd") || "";
+let sessionBrowserCurrentPath = sessionCreateCwd || "";
+let sessionBrowserParentPath = "";
+let sessionShowHidden = false;
+let sessionBrowserEntries = [];
+const pathbarColorStorageKey = "codexPathbarColorsByCwd";
+const defaultPathbarColor = "#4f8cff";
+let pathbarColorsByCwd = readPathbarColors();
 let accessMode = {
   label: "フルアクセス",
   approvalPolicy: "never",
   sandboxMode: "danger-full-access",
 };
 let pendingFiles = [];
-let lastReviewDigestSignature = "";
 
 const panelWidthConfig = {
   left: { min: 188, max: 360, fallback: 232, storageKey: "codexLeftSidebarWidth", cssVar: "--thread-width" },
@@ -109,12 +211,48 @@ const runStateText = {
   error: "エラー",
 };
 
+function isRemoteSessionRunning() {
+  return remoteSessionState?.status === "running";
+}
+
 function setRunState(state, label) {
   if (!runState || !runStateLabel) return;
   const nextLabel = label || runStateText[state] || state;
   if (runState.dataset.state === state && runStateLabel.textContent === nextLabel) return;
   runState.dataset.state = state;
   runStateLabel.textContent = nextLabel;
+}
+
+function applyRemoteSessionState(state) {
+  if (!state || typeof state !== "object") return;
+  remoteSessionState = state;
+  if (activeSessionKey) {
+    const active = openSessions.find((session) => session.key === activeSessionKey);
+    if (active) {
+      active.status = state.status || active.status;
+      active.updatedAt = Date.now();
+      persistOpenSessions();
+      renderSessionChrome();
+    }
+  }
+  syncTerminalSessionMeta();
+  if (state.status === "running") {
+    liveTurnActive = true;
+    setRunState("running", state.label || "Codex 処理中");
+    return;
+  }
+  if (state.status === "awaiting_approval") {
+    liveTurnActive = true;
+    setRunState("approval", state.label || "承認待ち");
+    return;
+  }
+  if (state.status === "input_ready" || state.status === "completed") {
+    liveTurnActive = false;
+    assistantEntry = null;
+    setRunState("done", state.label || "入力待ち");
+    loadThreads();
+    refreshSelectedThread();
+  }
 }
 
 function applyTheme(themeId) {
@@ -125,6 +263,387 @@ function applyTheme(themeId) {
 }
 
 applyTheme(selectedTheme);
+
+function isHexColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(String(value || ""));
+}
+
+function readPathbarColors() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(pathbarColorStorageKey) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function pathbarColorKeyFor(cwd = currentWorkdir) {
+  return cwd || "__default__";
+}
+
+function pathbarColorFor(cwd = currentWorkdir) {
+  const saved = pathbarColorsByCwd[pathbarColorKeyFor(cwd)] || pathbarColorsByCwd.__default__;
+  return isHexColor(saved) ? saved : defaultPathbarColor;
+}
+
+function applyPathbarColor(color = pathbarColorFor()) {
+  const nextColor = isHexColor(color) ? color : defaultPathbarColor;
+  document.documentElement.style.setProperty("--pathbar-color", nextColor);
+  if (pathbarColorPicker) pathbarColorPicker.value = nextColor;
+}
+
+function savePathbarColorForCurrentWorkdir(color) {
+  if (!isHexColor(color)) return;
+  pathbarColorsByCwd[pathbarColorKeyFor()] = color;
+  localStorage.setItem(pathbarColorStorageKey, JSON.stringify(pathbarColorsByCwd));
+  applyPathbarColor(color);
+}
+
+applyPathbarColor();
+
+function readJsonObjectArray(storageKey) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item === "object") : [];
+  } catch {
+    return [];
+  }
+}
+
+function readOpenSessions() {
+  return readJsonObjectArray(openSessionsStorageKey)
+    .map((item) => normalizeOpenSession(item))
+    .filter(Boolean);
+}
+
+function readResumeSession() {
+  try {
+    return normalizeOpenSession(JSON.parse(localStorage.getItem(resumeSessionStorageKey) || "null"));
+  } catch {
+    return null;
+  }
+}
+
+function readCwdHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(cwdHistoryStorageKey) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string").slice(0, maxCwdHistory) : [];
+  } catch {
+    return [];
+  }
+}
+
+function sessionKeyFor(threadId = "", cwd = "") {
+  return `${threadId || "new"}::${cwd || ""}`;
+}
+
+function normalizeOpenSession(item) {
+  if (!item || typeof item !== "object") return null;
+  const threadId = String(item.threadId || "");
+  const cwd = String(item.cwd || "");
+  if (!threadId && !cwd) return null;
+  return {
+    key: String(item.key || sessionKeyFor(threadId, cwd)),
+    threadId,
+    cwd,
+    title: String(item.title || threadId || cwd || "New session"),
+    status: String(item.status || "ready"),
+    updatedAt: Number(item.updatedAt || Date.now()),
+  };
+}
+
+function persistOpenSessions() {
+  localStorage.setItem(openSessionsStorageKey, JSON.stringify(openSessions));
+  if (activeSessionKey) localStorage.setItem(activeSessionStorageKey, activeSessionKey);
+  else localStorage.removeItem(activeSessionStorageKey);
+}
+
+function persistResumeSession(session) {
+  const normalized = normalizeOpenSession(session);
+  if (!normalized?.threadId) return;
+  resumeCandidateSession = normalized;
+  localStorage.setItem(resumeSessionStorageKey, JSON.stringify(normalized));
+}
+
+function pushCwdHistory(cwd) {
+  const nextCwd = String(cwd || "").trim();
+  if (!nextCwd) return;
+  cwdHistory = [nextCwd, ...cwdHistory.filter((item) => item !== nextCwd)].slice(0, maxCwdHistory);
+  localStorage.setItem(cwdHistoryStorageKey, JSON.stringify(cwdHistory));
+  localStorage.setItem("codexRemoteLastCwd", nextCwd);
+}
+
+function shortSessionPath(cwd) {
+  const display = displayPath(cwd);
+  const parts = String(display || "").split("/").filter(Boolean);
+  if (parts.length <= 2) return display || "cwd未設定";
+  return `.../${parts.slice(-2).join("/")}`;
+}
+
+function basenameForPath(cwd) {
+  const trimmed = String(cwd || "").replace(/\/+$/, "");
+  const parts = trimmed.split("/").filter(Boolean);
+  return parts.at(-1) || trimmed || "New session";
+}
+
+function homeDirectoryForPath(value) {
+  const text = String(value || "");
+  const match = text.match(/^\/Users\/[^/]+(?=\/|$)/) || text.match(/^\/home\/[^/]+(?=\/|$)/);
+  return match?.[0] || "";
+}
+
+function displayPath(value) {
+  const text = String(value || "");
+  const home = homeDirectoryForPath(text);
+  if (!home) return text;
+  return text === home ? "~" : `~${text.slice(home.length)}`;
+}
+
+function defaultDeveloperPath() {
+  const candidates = [sessionCreateCwd, sessionBrowserCurrentPath, currentWorkdir, ...cwdHistory].filter(Boolean);
+  for (const candidate of candidates) {
+    const text = String(candidate);
+    const marker = "/Developer";
+    const index = text.indexOf(marker);
+    if (index >= 0) return text.slice(0, index + marker.length);
+  }
+  return "";
+}
+
+function addOrUpdateOpenSession(input) {
+  const session = normalizeOpenSession({
+    ...input,
+    key: sessionKeyFor(input.threadId, input.cwd),
+    title: input.title || basenameForPath(input.cwd) || input.threadId,
+    updatedAt: Date.now(),
+  });
+  if (!session) return null;
+  const index = openSessions.findIndex((item) => item.key === session.key);
+  if (index >= 0) openSessions[index] = { ...openSessions[index], ...session };
+  else openSessions.push(session);
+  activeSessionKey = session.key;
+  persistResumeSession(session);
+  persistOpenSessions();
+  renderSessionChrome();
+  return session;
+}
+
+function syncOpenSessionsFromThreads() {
+  const liveIds = new Set(threadCache.map((thread) => thread.id).filter(Boolean));
+  const previousActive =
+    openSessions.find((session) => session.key === activeSessionKey && session.threadId) || resumeCandidateSession || readResumeSession();
+  const known = new Map(openSessions.map((item) => [item.threadId, item]));
+  for (const thread of threadCache) {
+    if (!thread.id) continue;
+    const existing = known.get(thread.id);
+    if (existing) {
+      existing.cwd = thread.cwd || existing.cwd;
+      existing.title = titleForThread(thread);
+      existing.status = thread.status || thread.sessionState?.status || existing.status || "ready";
+      existing.updatedAt = thread.updatedAt || thread.createdAt || Date.now();
+      continue;
+    }
+    openSessions.push(
+      normalizeOpenSession({
+        threadId: thread.id,
+        cwd: thread.cwd || "",
+        title: titleForThread(thread),
+        status: thread.status || thread.sessionState?.status || "ready",
+        updatedAt: thread.updatedAt || thread.createdAt || Date.now(),
+      }),
+    );
+  }
+  openSessions = openSessions
+    .filter((session) => session && (!session.threadId || liveIds.has(session.threadId)))
+    .sort((a, b) => a.updatedAt - b.updatedAt);
+  if (previousActive?.threadId && !liveIds.has(previousActive.threadId)) persistResumeSession(previousActive);
+  if (selectedThread && !liveIds.has(selectedThread)) {
+    persistResumeSession({
+      threadId: selectedThread,
+      cwd: currentWorkdir || previousActive?.cwd || resumeCandidateSession?.cwd || "",
+      title: previousActive?.title || selectedThread,
+      status: "resume_pending",
+    });
+  }
+  if (!activeSessionKey && openSessions.length) activeSessionKey = openSessions[0].key;
+  if (
+    activeSessionKey &&
+    !openSessions.some((session) => session.key === activeSessionKey) &&
+    resumeCandidateSession?.key !== activeSessionKey
+  ) {
+    activeSessionKey = "";
+  }
+  persistOpenSessions();
+  renderSessionChrome();
+}
+
+function activeSessionIndex() {
+  return openSessions.findIndex((session) => session.key === activeSessionKey);
+}
+
+function switchToOpenSession(sessionKey) {
+  const session = openSessions.find((item) => item.key === sessionKey);
+  if (!session) return false;
+  activeSessionKey = session.key;
+  persistOpenSessions();
+  selectedThread = session.threadId || "";
+  currentWorkdir = session.cwd || currentWorkdir;
+  updateUrlThread();
+  renderSessionChrome();
+  connect();
+  return true;
+}
+
+function switchOpenSessionByOffset(offset) {
+  if (openSessions.length < 2) return false;
+  const current = Math.max(0, activeSessionIndex());
+  const next = current + offset;
+  if (next < 0 || next >= openSessions.length) return false;
+  return switchToOpenSession(openSessions[next].key);
+}
+
+function removeOpenSession(sessionKey) {
+  const index = openSessions.findIndex((session) => session.key === sessionKey);
+  if (index < 0) return;
+  const [removed] = openSessions.splice(index, 1);
+  if (removed?.threadId === selectedThread) {
+    const neighbor = openSessions[index] || openSessions[Math.max(0, index - 1)] || null;
+    activeSessionKey = neighbor?.key || "";
+    selectedThread = neighbor?.threadId || "";
+    currentWorkdir = neighbor?.cwd || currentWorkdir;
+    updateUrlThread();
+    if (neighbor) connect();
+    else renderHistory([]);
+  }
+  persistOpenSessions();
+  renderSessionChrome();
+  renderOpenSessionList();
+}
+
+function renderSessionChrome() {
+  const index = activeSessionIndex();
+  if (sessionCountPill) sessionCountPill.textContent = openSessions.length ? `${Math.max(0, index) + 1}/${openSessions.length}` : "0/0";
+  renderOpenSessionList();
+}
+
+function renderOpenSessionList() {
+  if (!openSessionList) return;
+  openSessionList.replaceChildren();
+  if (!openSessions.length) {
+    const empty = document.createElement("div");
+    empty.className = "session-empty";
+    empty.textContent = "開いているセッションはありません。";
+    openSessionList.appendChild(empty);
+    return;
+  }
+  for (const session of openSessions) {
+    const row = document.createElement("div");
+    row.className = session.key === activeSessionKey ? "session-card-row active" : "session-card-row";
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "session-card";
+    card.innerHTML = `
+      <span class="session-card-title">${escapeHtml(session.title || basenameForPath(session.cwd))}</span>
+      <span class="session-card-path">${escapeHtml(displayPath(session.cwd) || "cwd未設定")}</span>
+      <span class="session-card-meta">${escapeHtml(session.status || "ready")} · ${escapeHtml(shortSessionPath(session.cwd))}</span>
+    `;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "session-card-close";
+    close.setAttribute("aria-label", `${session.title || session.threadId} を閉じる`);
+    close.textContent = "×";
+    card.addEventListener("click", () => {
+      closeSessionSwitcher();
+      switchToOpenSession(session.key);
+    });
+    close.addEventListener("click", () => removeOpenSession(session.key));
+    row.append(card, close);
+    openSessionList.appendChild(row);
+  }
+}
+
+function openSessionSwitcher() {
+  renderOpenSessionList();
+  sessionSwitcherOverlay?.classList.remove("hidden");
+}
+
+function closeSessionSwitcher() {
+  sessionSwitcherOverlay?.classList.add("hidden");
+}
+
+function restoreActiveSessionFromStorage() {
+  if (selectedThread) return true;
+  const liveIds = new Set(threadCache.map((thread) => thread.id).filter(Boolean));
+  const saved =
+    openSessions.find((session) => session.key === activeSessionKey && liveIds.has(session.threadId)) ||
+    openSessions.find((session) => liveIds.has(session.threadId)) ||
+    resumeCandidateSession ||
+    readResumeSession() ||
+    null;
+  if (!saved) return false;
+  activeSessionKey = saved.key;
+  selectedThread = saved.threadId || "";
+  currentWorkdir = saved.cwd || currentWorkdir;
+  updateUrlThread();
+  renderSessionChrome();
+  return Boolean(selectedThread);
+}
+
+function setMainMode(mode) {
+  const nextMode = mode === "terminal" ? "terminal" : "chat";
+  activeMainMode = nextMode;
+  document.body.dataset.mainMode = nextMode;
+  localStorage.setItem("codexMainMode", nextMode);
+  for (const button of modeButtons) {
+    const active = button.dataset.mainMode === nextMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  if (nextMode === "terminal") {
+    syncTerminalSessionMeta();
+    ensureNativeTerminalConnected();
+  }
+}
+
+function applyTerminalTheme() {
+  if (terminalThemeMode === "light") document.body.dataset.terminalMode = "light";
+  else delete document.body.dataset.terminalMode;
+  if (terminalThemeToggle) {
+    terminalThemeToggle.textContent = terminalThemeMode === "light" ? "☀️" : "🌙";
+    terminalThemeToggle.setAttribute(
+      "aria-label",
+      terminalThemeMode === "light" ? "ダークターミナルへ切り替え" : "ライトターミナルへ切り替え",
+    );
+  }
+  nativeTerminal?.setThemeMode?.(terminalThemeMode);
+}
+
+function applyTerminalFontSize() {
+  if (terminalFontSizeLabel) terminalFontSizeLabel.textContent = String(terminalFontSize);
+  const index = terminalFontSizes.indexOf(terminalFontSize);
+  if (terminalZoomOut) {
+    terminalZoomOut.disabled = index <= 0;
+    terminalZoomOut.classList.toggle("disabled", index <= 0);
+  }
+  if (terminalZoomIn) {
+    terminalZoomIn.disabled = index >= terminalFontSizes.length - 1;
+    terminalZoomIn.classList.toggle("disabled", index >= terminalFontSizes.length - 1);
+  }
+  nativeTerminal?.setFontSize?.(terminalFontSize);
+}
+
+function setTerminalInputMode(mode) {
+  terminalInputMode = mode === "keys" ? "keys" : "text";
+  localStorage.setItem("codexTerminalInputMode", terminalInputMode);
+  for (const button of terminalModeButtons) {
+    const active = button.dataset.terminalInputMode === terminalInputMode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  for (const panel of terminalPanels) {
+    panel.classList.toggle("hidden", panel.dataset.terminalPanel !== terminalInputMode);
+  }
+}
 
 const accessModes = [
   { label: "フルアクセス", approvalPolicy: "never", sandboxMode: "danger-full-access" },
@@ -572,116 +1091,10 @@ function renderImageGallery(images = []) {
   return gallery;
 }
 
-function fileKindLabel(kind) {
-  if (kind === "markdown") return "ドキュメント・MD";
-  if (kind === "image") return "画像";
-  return "ファイル";
-}
-
 function diffStatLabel(file) {
   const additions = Number(file.additions || 0);
   const deletions = Number(file.deletions || 0);
   return `<span class="diff-add">+${additions}</span><span class="diff-del">-${deletions}</span>`;
-}
-
-function shouldDisplayReviewFile(file) {
-  return Boolean(file?.path && (file.openable || Number(file.additions || 0) || Number(file.deletions || 0)));
-}
-
-function renderReviewDigest(result) {
-  const files = (result?.files || []).filter(shouldDisplayReviewFile);
-  if (!result || result.clean || !files.length) return null;
-  const openableFiles = files.filter((file) => file.openable).slice(0, 6);
-  const totalFiles = files.length;
-  const totals =
-    result.totals && files.length === result.files?.length
-      ? result.totals
-      : files.reduce(
-          (sum, file) => ({
-            additions: sum.additions + Number(file.additions || 0),
-            deletions: sum.deletions + Number(file.deletions || 0),
-          }),
-          { additions: 0, deletions: 0 },
-        );
-  const sourceLabel = result.source === "latest commit" ? "最新commit" : "作業ツリー";
-  const wrap = document.createElement("section");
-  wrap.className = "review-digest";
-  wrap.innerHTML = `
-    <details class="review-reference-toggle">
-      <summary>${totalFiles}件の変更ファイル・${sourceLabel}</summary>
-    </details>
-    <div class="artifact-card-list"></div>
-    <div class="diff-card">
-      <div class="diff-card-header">
-        <strong>${totalFiles}個のファイルが変更されました</strong>
-        <span>${diffStatLabel({ additions: totals.additions, deletions: totals.deletions })}</span>
-      </div>
-      <div class="diff-file-list"></div>
-    </div>
-  `;
-  const citation = wrap.querySelector(".review-reference-toggle");
-  citation.dataset.reviewDigest = "true";
-  const artifactListNode = wrap.querySelector(".artifact-card-list");
-  for (const file of openableFiles) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "chat-artifact-card";
-    button.dataset.openArtifactPath = file.path;
-    button.innerHTML = `
-      <span class="chat-artifact-icon" aria-hidden="true">${file.kind === "image" ? "IMG" : "DOC"}</span>
-      <span class="chat-artifact-copy">
-        <strong>${escapeHtml(file.path.split(/[\\/]/).pop() || file.path)}</strong>
-        <small>${escapeHtml(fileKindLabel(file.kind))}</small>
-      </span>
-      <span class="chat-artifact-open">開く</span>
-    `;
-    artifactListNode.appendChild(button);
-  }
-  if (!openableFiles.length) artifactListNode.remove();
-
-  const diffList = wrap.querySelector(".diff-file-list");
-  for (const file of files.slice(0, 12)) {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "diff-file-row";
-    if (file.openable) row.dataset.openArtifactPath = file.path;
-    row.innerHTML = `
-      <span class="diff-file-name">${escapeHtml(file.path)}</span>
-      <span class="diff-file-stat">${diffStatLabel(file)}</span>
-      <span class="diff-file-chevron" aria-hidden="true">⌄</span>
-    `;
-    diffList.appendChild(row);
-  }
-  return wrap;
-}
-
-async function appendReviewDigest() {
-  if (tokenRequired && !token) return;
-  try {
-    const result = await apiGet("/api/review");
-    const signature = JSON.stringify({
-      branch: result.branch,
-      files: (result.files || []).map((file) => [file.status, file.path, file.additions, file.deletions]),
-    });
-    const existingDigests = Array.from(log.querySelectorAll(".review-digest-entry"));
-    if (signature === lastReviewDigestSignature && existingDigests.length) return;
-    lastReviewDigestSignature = signature;
-    const digest = renderReviewDigest(result);
-    for (const existing of existingDigests) existing.remove();
-    if (!digest) return;
-    const el = document.createElement("article");
-    el.className = "entry assistant review-digest-entry";
-    const body = document.createElement("div");
-    body.className = "entry-body";
-    body.appendChild(digest);
-    const tools = document.createElement("div");
-    tools.className = "entry-tools";
-    el.append(body, tools);
-    log.appendChild(el);
-    log.scrollTop = log.scrollHeight;
-  } catch (error) {
-    addStatus(`差分サマリーを更新できませんでした: ${error.message}`);
-  }
 }
 
 function summarizeStatus(items) {
@@ -806,7 +1219,6 @@ function renderHistoryIfChanged(history = []) {
   if (signature === lastHistorySignature) return false;
   lastHistorySignature = signature;
   renderHistory(history);
-  appendReviewDigest();
   return true;
 }
 
@@ -908,8 +1320,9 @@ async function loadBridgeInfo() {
 async function loadThreads({ background = false } = {}) {
   if (tokenRequired && !token) return;
   try {
-    const result = await apiGet("/api/threads");
+    const result = await apiGet("/api/live-threads");
     threadCache = result.data || [];
+    syncOpenSessionsFromThreads();
     renderThreadList();
     lastThreadListError = "";
   } catch (error) {
@@ -924,6 +1337,12 @@ async function loadThreads({ background = false } = {}) {
 
 async function refreshSelectedThread() {
   if (!selectedThread || liveTurnActive || selectedThreadRefreshActive) return;
+  if (!threadCache.some((thread) => thread.id === selectedThread)) {
+    const resumable = resumeCandidateSession || readResumeSession();
+    if (resumable?.threadId === selectedThread) return;
+    clearSelectedThread({ reason: `稼働中ではないthreadの履歴表示を停止しました: ${selectedThread}` });
+    return;
+  }
   selectedThreadRefreshActive = true;
   try {
     const result = await apiGet(`/api/thread?thread=${encodeURIComponent(selectedThread)}`);
@@ -932,6 +1351,7 @@ async function refreshSelectedThread() {
     lastThreadRefreshError = "";
   } catch (error) {
     const message = error.message || String(error);
+    if (recoverMissingSelectedThread(message)) return;
     if (message !== lastThreadRefreshError) {
       lastThreadRefreshError = message;
       addEntry("error", `thread更新を読めませんでした: ${message}`);
@@ -958,17 +1378,79 @@ function updateUrlThread() {
   history.replaceState(null, "", next);
 }
 
-function syncReadyThread(threadId) {
-  if (!threadId || selectedThread === threadId) return;
+function isMissingThreadError(message) {
+  return /no rollout found for thread id|thread not found|no thread found/i.test(String(message || ""));
+}
+
+function clearSelectedThread({ reason = "" } = {}) {
+  const previousThread = selectedThread;
+  selectedThread = "";
+  lastThreadRefreshError = "";
+  liveTurnActive = false;
+  selectedThreadRefreshActive = false;
+  localStorage.removeItem("codexPhoneLastThread");
+  updateUrlThread();
+  renderHistory([]);
+  renderThreadList();
+  threadTitle.textContent = "新しい共有thread";
+  syncTerminalSessionMeta();
+  if (reason) addEntry("status", reason);
+  return previousThread;
+}
+
+function recoverMissingSelectedThread(message) {
+  const staleThread = selectedThread;
+  if (!staleThread || !isMissingThreadError(message)) return false;
+  clearSelectedThread({ reason: `存在しないthreadを解除しました: ${staleThread}` });
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+  connect();
+  return true;
+}
+
+function syncReadyThread(threadId, options = {}) {
+  if (!threadId) return;
   selectedThread = threadId;
   updateUrlThread();
+  const existingIndex = threadCache.findIndex((thread) => thread.id === threadId);
+  const liveThread = {
+    id: threadId,
+    threadId,
+    cwd: currentWorkdir,
+    preview: "稼働中スレッド",
+    status: remoteSessionState?.status || "ready",
+    ready: true,
+    updatedAt: Date.now(),
+  };
+  if (existingIndex >= 0) threadCache[existingIndex] = { ...threadCache[existingIndex], ...liveThread };
+  else threadCache.unshift(liveThread);
   const selected = threadCache.find((thread) => thread.id === selectedThread);
   threadTitle.textContent = selected ? titleForThread(selected) : selectedThread;
+  addOrUpdateOpenSession({
+    threadId,
+    cwd: currentWorkdir,
+    title: selected ? titleForThread(selected) : basenameForPath(currentWorkdir),
+    status: remoteSessionState?.status || "ready",
+  });
   renderThreadList();
+  syncTerminalSessionMeta();
+  if (options.prewarmTerminal) ensureNativeTerminalConnected({ focus: activeMainMode === "terminal" });
 }
 
 function selectThread(threadId) {
   selectedThread = threadId;
+  const selected = threadCache.find((thread) => thread.id === selectedThread);
+  if (selected) {
+    const session = addOrUpdateOpenSession({
+      threadId: selected.id,
+      cwd: selected.cwd || "",
+      title: titleForThread(selected),
+      status: "ready",
+    });
+    activeSessionKey = session?.key || activeSessionKey;
+  }
   updateUrlThread();
   renderThreadList();
   closeSidebar();
@@ -977,18 +1459,312 @@ function selectThread(threadId) {
 
 function setCurrentWorkdir(workdir) {
   currentWorkdir = workdir || currentWorkdir || "";
+  applyPathbarColor();
+  syncHeaderCwd();
+  syncTerminalSessionMeta();
+  if (activeMainMode === "terminal") ensureNativeTerminalConnected();
+}
+
+function syncHeaderCwd() {
+  if (!headerCwd) return;
+  const cwd = currentWorkdir || "準備中";
+  headerCwd.textContent = currentWorkdir ? displayPath(currentWorkdir) : cwd;
+  headerCwd.title = currentWorkdir || "";
+}
+
+function syncTerminalSessionMeta() {
+  if (!terminalSessionMeta) return;
+  const thread = selectedThread || "thread準備中";
+  const cwd = currentWorkdir ? displayPath(currentWorkdir) : "cwd準備中";
+  const stateLabel = remoteSessionState?.label ? `  •  ${remoteSessionState.label}` : "";
+  terminalSessionMeta.textContent = `${thread}  •  ${cwd}${stateLabel}`;
+}
+
+function terminalSocketUrl({ threadId, cwd, cols, rows }) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const url = new URL(`${protocol}//${window.location.host}/terminal`);
+  url.searchParams.set("thread", threadId);
+  if (cwd) url.searchParams.set("cwd", cwd);
+  if (token) url.searchParams.set("token", token);
+  if (cols) url.searchParams.set("cols", String(cols));
+  if (rows) url.searchParams.set("rows", String(rows));
+  return url.toString();
+}
+
+function ensureNativeTerminalConnected(options = {}) {
+  if (!terminalHost || !window.CodexNativeTerminal) {
+    if (terminalFallback) {
+      terminalFallback.textContent = "xterm bundle を読み込めませんでした。npm run build:ui を実行してください。";
+      terminalFallback.classList.remove("hidden");
+    }
+    return false;
+  }
+  if (!selectedThread) {
+    if (terminalFallback) {
+      terminalFallback.textContent = "thread が準備できたら Codex CLI TUI を開始します。";
+      terminalFallback.classList.remove("hidden");
+    }
+    return false;
+  }
+  if (!nativeTerminal) {
+    nativeTerminal = new window.CodexNativeTerminal({
+      host: terminalHost,
+      fallback: terminalFallback,
+      buildUrl: terminalSocketUrl,
+      fontSize: terminalFontSize,
+      themeMode: terminalThemeMode,
+      onStatus: (text) => {
+        if (terminalStatus) terminalStatus.textContent = text || "Codex Terminal";
+      },
+      onSessionState: applyRemoteSessionState,
+      onLongPressActiveChange: (active) => {
+        terminalLongPressActive = Boolean(active);
+        document.body.classList.toggle("terminal-touch-lock", terminalLongPressActive);
+      },
+    });
+  }
+  return nativeTerminal.connect({
+    threadId: selectedThread,
+    cwd: currentWorkdir,
+    force: Boolean(options.force),
+    focus: options.focus ?? activeMainMode === "terminal",
+  });
+}
+
+function sendNativeTerminalInput(data) {
+  const decoded = String(data || "")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t")
+    .replace(/\\u007f/g, "\x7f")
+    .replace(/\\u001b/g, "\u001b")
+    .replace(/\\u0003/g, "\u0003");
+  if (isRemoteSessionRunning() && !decoded.includes("\u0003")) {
+    addStatus("Codex 処理中のため、ターミナル入力を一時停止しています。");
+    return false;
+  }
+  if (!nativeTerminal && !ensureNativeTerminalConnected()) return;
+  nativeTerminal?.sendInput(decoded);
+  nativeTerminal?.focus();
+  return true;
+}
+
+function appendTerminalPromptLine(line) {
+  if (!terminalPrompt || !line) return;
+  const current = terminalPrompt.value || "";
+  const separator = current && !current.endsWith("\n") ? "\n" : "";
+  terminalPrompt.value = `${current}${separator}${line}\n`;
+  setTerminalInputMode("text");
+  terminalPrompt.focus();
+}
+
+function submitTerminalPrompt() {
+  if (!terminalPrompt) return;
+  const text = terminalPrompt.value;
+  if (text.length === 0) {
+    sendNativeTerminalInput("\r");
+    return;
+  }
+  if (!sendNativeTerminalInput(text)) return;
+  terminalPrompt.value = "";
+  if (terminalSend) terminalSend.textContent = "Enter ↵";
+  terminalPrompt.focus();
+}
+
+async function handleTerminalAction(action) {
+  if (action === "cwd") {
+    appendTerminalPromptLine(currentWorkdir || ".");
+    return;
+  }
+  if (action === "attach") {
+    terminalFileInput?.click();
+    return;
+  }
+  if (action === "copy") {
+    const text = nativeTerminal?.visibleText?.() || "";
+    if (!text) {
+      addStatus("コピーできるターミナル表示がありません。");
+      return;
+    }
+    const copied = await copyTextToClipboard(text);
+    if (copied) {
+      if (terminalStatus) terminalStatus.textContent = "ターミナル表示をコピーしました";
+      addStatus("ターミナル表示をコピーしました。");
+      return;
+    }
+    showTerminalCopyFallback(text);
+    if (terminalStatus) terminalStatus.textContent = "コピー用テキストを表示中";
+    addStatus("ブラウザが自動コピーを拒否したため、コピー用テキストを表示しました。");
+  }
+}
+
+function showTerminalCtrlCConfirm() {
+  terminalCtrlCConfirm?.classList.remove("hidden");
+}
+
+function hideTerminalCtrlCConfirm() {
+  terminalCtrlCConfirm?.classList.add("hidden");
 }
 
 function startNewThread() {
-  forceNewThreadOnce = true;
-  nextThreadCwd = "";
-  selectThread("");
+  openSessionCreatePage();
 }
 
 function startNewThreadInCwd(cwd) {
   forceNewThreadOnce = true;
   nextThreadCwd = cwd;
+  pushCwdHistory(cwd);
+  closeSessionCreatePage();
   selectThread("");
+}
+
+function openSessionCreatePage(initialCwd = defaultDeveloperPath()) {
+  const nextCwd = initialCwd || defaultDeveloperPath();
+  sessionCreateCwd = nextCwd;
+  sessionBrowserCurrentPath = nextCwd || sessionBrowserCurrentPath || defaultDeveloperPath();
+  sessionShowHidden = false;
+  if (sessionHiddenToggle) sessionHiddenToggle.checked = false;
+  renderSessionCreatePage();
+  sessionCreatePage?.classList.remove("hidden");
+  closeSidebar();
+  closeSessionSwitcher();
+  void loadSessionBrowser(sessionBrowserCurrentPath);
+}
+
+function closeSessionCreatePage() {
+  sessionCreatePage?.classList.add("hidden");
+}
+
+function renderSessionCreatePage() {
+  if (sessionSelectedCwd) {
+    sessionSelectedCwd.innerHTML = sessionCreateCwd
+      ? `
+        <span class="session-card-main">
+          <strong>${escapeHtml(basenameForPath(sessionCreateCwd))}</strong>
+          <span>${escapeHtml(displayPath(sessionCreateCwd))}</span>
+        </span>
+        <span class="session-card-check" aria-hidden="true">✓</span>
+      `
+      : `
+        <span class="session-card-main">
+          <strong>フォルダを選択</strong>
+          <span>下のブラウザから作業ディレクトリを選択</span>
+        </span>
+      `;
+  }
+  if (sessionStartButton) sessionStartButton.disabled = !sessionCreateCwd;
+  renderSessionRecentList();
+}
+
+function renderSessionRecentList() {
+  if (!sessionRecentList) return;
+  sessionRecentList.replaceChildren();
+  if (sessionRecentClear) sessionRecentClear.disabled = !cwdHistory.length;
+  if (!cwdHistory.length) {
+    const empty = document.createElement("div");
+    empty.className = "session-empty";
+    empty.innerHTML = "<strong>最近使ったプロジェクトはまだありません。</strong><span>下のフォルダブラウザから開始先を選ぶと、次回ここに表示されます。</span>";
+    sessionRecentList.appendChild(empty);
+    return;
+  }
+  for (const cwd of cwdHistory) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = cwd === sessionCreateCwd ? "session-card session-project-card active" : "session-card session-project-card";
+    card.innerHTML = `
+      <span class="session-card-icon" aria-hidden="true">${fontAwesomeIcon("folder", "project-icon")}</span>
+      <span class="session-card-main">
+        <span class="session-card-title">${escapeHtml(basenameForPath(cwd))}</span>
+        <span class="session-card-path">${escapeHtml(displayPath(cwd))}</span>
+        <span class="session-card-meta">最近使用</span>
+      </span>
+      ${cwd === sessionCreateCwd ? '<span class="session-card-check" aria-hidden="true">✓</span>' : ""}
+    `;
+    card.addEventListener("click", () => {
+      sessionCreateCwd = cwd;
+      sessionBrowserCurrentPath = cwd;
+      renderSessionCreatePage();
+      void loadSessionBrowser(cwd);
+    });
+    sessionRecentList.appendChild(card);
+  }
+}
+
+function clearSessionRecentHistory() {
+  cwdHistory = [];
+  localStorage.removeItem(cwdHistoryStorageKey);
+  localStorage.removeItem("codexRemoteLastCwd");
+  renderSessionCreatePage();
+}
+
+function sessionDirectorySearchText() {
+  return String(sessionDirectorySearch?.value || "").trim().toLowerCase();
+}
+
+function renderSessionBrowserEntries() {
+  if (!sessionBrowserList) return;
+  sessionBrowserList.replaceChildren();
+  const searchText = sessionDirectorySearchText();
+  const entries = searchText
+    ? sessionBrowserEntries.filter((entry) => `${entry.name || ""} ${entry.path || ""}`.toLowerCase().includes(searchText))
+    : sessionBrowserEntries;
+  for (const entry of entries) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "session-card session-folder-card";
+    row.innerHTML = `
+      <span class="session-card-icon" aria-hidden="true">${fontAwesomeIcon("folder", "project-icon")}</span>
+      <span class="session-card-main">
+        <span class="session-card-title">${escapeHtml(entry.name)}</span>
+        <span class="session-card-path">${escapeHtml(displayPath(entry.path))}</span>
+      </span>
+    `;
+    row.addEventListener("click", () => loadSessionBrowser(entry.path));
+    sessionBrowserList.appendChild(row);
+  }
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "session-empty";
+    empty.textContent = searchText ? "一致するフォルダはありません。" : "下位フォルダはありません。";
+    sessionBrowserList.appendChild(empty);
+  }
+}
+
+async function loadSessionBrowser(pathValue = "", options = {}) {
+  if (!sessionBrowserList || !sessionBrowserPath) return;
+  if (!options.preserveSearch && sessionDirectorySearch) sessionDirectorySearch.value = "";
+  sessionBrowserList.replaceChildren();
+  const loading = document.createElement("div");
+  loading.className = "session-empty";
+  loading.textContent = "読み込み中...";
+  sessionBrowserList.appendChild(loading);
+  const query = new URLSearchParams();
+  if (pathValue) query.set("path", pathValue);
+  if (sessionShowHidden) query.set("hidden", "1");
+  try {
+    const suffix = query.toString() ? `?${query}` : "";
+    const listing = await apiGet(`/api/fs/list${suffix}`);
+    sessionBrowserCurrentPath = listing.path || "";
+    sessionBrowserParentPath = listing.parent || "";
+    sessionCreateCwd = listing.path || "";
+    sessionBrowserPath.textContent = displayPath(listing.path) || "/";
+    sessionBrowserPath.title = listing.path || "";
+    sessionBrowserUp.disabled = !sessionBrowserParentPath;
+    renderSessionCreatePage();
+    sessionBrowserEntries = listing.entries || [];
+    renderSessionBrowserEntries();
+  } catch (error) {
+    sessionBrowserEntries = [];
+    sessionBrowserList.replaceChildren();
+    const failed = document.createElement("div");
+    failed.className = "session-empty error";
+    failed.textContent = `読み込みに失敗しました: ${error.message}`;
+    sessionBrowserList.appendChild(failed);
+  }
+}
+
+function startSelectedSession() {
+  if (!sessionCreateCwd) return;
+  startNewThreadInCwd(sessionCreateCwd);
 }
 
 function showRightPanel({ focus = false } = {}) {
@@ -1032,9 +1808,13 @@ function addPanelRow(text, detail, onClick, icon = "") {
   row.className = "artifact-row";
   row.classList.toggle("no-icon", !icon);
   const iconHtml = icon ? `<span class="panel-row-icon" aria-hidden="true">${escapeHtml(icon)}</span>` : "";
+  const displayText = displayPath(text);
+  const displayDetail = displayPath(detail);
   row.innerHTML = detail
-    ? `${iconHtml}<span class="panel-row-copy"><strong>${escapeHtml(text)}</strong><small>${escapeHtml(detail)}</small></span>`
-    : `${iconHtml}<span class="panel-row-copy">${escapeHtml(text)}</span>`;
+    ? `${iconHtml}<span class="panel-row-copy"><strong>${escapeHtml(displayText)}</strong><small>${escapeHtml(displayDetail)}</small></span>`
+    : `${iconHtml}<span class="panel-row-copy">${escapeHtml(displayText)}</span>`;
+  if (displayText !== String(text || "")) row.title = String(text || "");
+  if (displayDetail !== String(detail || "")) row.title = [row.title, String(detail || "")].filter(Boolean).join("\n");
   if (onClick) row.addEventListener("click", onClick);
   artifactList.appendChild(row);
   return row;
@@ -1043,6 +1823,110 @@ function addPanelRow(text, detail, onClick, icon = "") {
 function appendToPrompt(text) {
   promptInput.value = `${promptInput.value}${promptInput.value ? "\n" : ""}${text}`;
   promptInput.focus();
+}
+
+async function copyTextToClipboard(text) {
+  if (!String(text || "").trim()) return false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // ブラウザや権限状態で Clipboard API が拒否されるため、旧式コピーへ落とす。
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "-9999px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  let copied = false;
+  try {
+    copied = document.execCommand?.("copy") === true;
+  } catch {
+    copied = false;
+  }
+  textarea.remove();
+  return copied;
+}
+
+function closeTerminalCopyFallback() {
+  terminalCopyFallbackDialog?.remove();
+  terminalCopyFallbackDialog = null;
+}
+
+function selectCopyFallbackText(textarea) {
+  requestAnimationFrame(() => {
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+  });
+}
+
+function showTerminalCopyFallback(text) {
+  closeTerminalCopyFallback();
+
+  const overlay = document.createElement("div");
+  overlay.className = "terminal-copy-fallback";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "terminalCopyFallbackTitle");
+
+  const card = document.createElement("div");
+  card.className = "terminal-copy-card";
+
+  const title = document.createElement("strong");
+  title.id = "terminalCopyFallbackTitle";
+  title.textContent = "コピー用テキスト";
+
+  const description = document.createElement("p");
+  description.textContent = "ブラウザが自動コピーを拒否しました。選択済みの内容をコピーしてください。";
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "terminal-copy-textarea";
+  textarea.readOnly = true;
+  textarea.value = text;
+  textarea.setAttribute("aria-label", "ターミナル表示のコピー用テキスト");
+
+  const actions = document.createElement("div");
+  actions.className = "terminal-confirm-actions";
+
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.textContent = "再コピー";
+  retry.addEventListener("click", async () => {
+    const copied = await copyTextToClipboard(text);
+    if (copied) {
+      closeTerminalCopyFallback();
+      if (terminalStatus) terminalStatus.textContent = "ターミナル表示をコピーしました";
+      addStatus("ターミナル表示をコピーしました。");
+      return;
+    }
+    selectCopyFallbackText(textarea);
+    if (terminalStatus) terminalStatus.textContent = "コピー用テキストを選択中";
+  });
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.textContent = "閉じる";
+  close.addEventListener("click", closeTerminalCopyFallback);
+
+  actions.append(retry, close);
+  card.append(title, description, textarea, actions);
+  overlay.appendChild(card);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) closeTerminalCopyFallback();
+  });
+  document.body.appendChild(overlay);
+  terminalCopyFallbackDialog = overlay;
+  selectCopyFallbackText(textarea);
 }
 
 function renderArtifactIndex(items) {
@@ -1535,6 +2419,101 @@ function bindResizeHandle(handle, kind) {
   });
 }
 
+function bindSessionSwipe() {
+  const surface = document.querySelector(".mode-stage");
+  if (!surface) return;
+  let gesture = null;
+  let wheelGesture = { accumX: 0, lastWheelAt: 0, lastSwitchAt: 0 };
+  const touchActivatePx = 18;
+  const touchDistanceRatio = 0.16;
+  const touchVelocityPxPerMs = 0.32;
+  const wheelResetMs = 180;
+  const wheelCooldownMs = 350;
+  const wheelMinThresholdPx = 42;
+  const wheelMaxThresholdPx = 110;
+  const wheelThresholdRatio = 0.12;
+  const isOverlayOpen = () =>
+    sessionCreatePage?.classList.contains("hidden") === false ||
+    sessionSwitcherOverlay?.classList.contains("hidden") === false;
+  const isControlTarget = (target) => {
+    if (!target?.closest) return false;
+    if (target.closest("#terminalHost")) return false;
+    return Boolean(
+      target.closest(
+        "input, textarea, select, button, a, [contenteditable='true'], #composer, #terminalInputArea, .terminal-toolbar, .approval",
+      ),
+    );
+  };
+  const isSwipeBlocked = (event) => terminalLongPressActive || isOverlayOpen() || isControlTarget(event?.target);
+  surface.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 1 || isSwipeBlocked(event)) return;
+    const touch = event.touches[0];
+    gesture = { x: touch.clientX, y: touch.clientY, time: Date.now(), active: false };
+  }, { passive: true });
+  surface.addEventListener("touchmove", (event) => {
+    if (!gesture || event.touches.length !== 1) return;
+    if (terminalLongPressActive) {
+      gesture = null;
+      return;
+    }
+    const touch = event.touches[0];
+    const dx = touch.clientX - gesture.x;
+    const dy = touch.clientY - gesture.y;
+    if (!gesture.active && Math.abs(dx) > touchActivatePx && Math.abs(dx) > Math.abs(dy) * 1.25) gesture.active = true;
+    if (gesture.active) event.preventDefault();
+  }, { passive: false });
+  const finish = (event) => {
+    if (!gesture) return;
+    const touch = event.changedTouches?.[0];
+    const dx = touch ? touch.clientX - gesture.x : 0;
+    const elapsed = Math.max(1, Date.now() - gesture.time);
+    const velocity = Math.abs(dx) / elapsed;
+    const shouldSwitch = gesture.active && (Math.abs(dx) > surface.clientWidth * touchDistanceRatio || velocity > touchVelocityPxPerMs);
+    if (shouldSwitch) switchOpenSessionByOffset(dx < 0 ? 1 : -1);
+    gesture = null;
+  };
+  surface.addEventListener("touchend", finish, { passive: true });
+  surface.addEventListener("touchcancel", () => {
+    gesture = null;
+  }, { passive: true });
+  surface.addEventListener("wheel", (event) => {
+    if (isSwipeBlocked(event)) return;
+    if (Math.abs(event.deltaX) < Math.abs(event.deltaY) * 1.1) return;
+    event.preventDefault();
+    const now = Date.now();
+    if (now - wheelGesture.lastWheelAt > wheelResetMs) wheelGesture.accumX = 0;
+    wheelGesture.lastWheelAt = now;
+    wheelGesture.accumX += event.deltaX;
+    if (now - wheelGesture.lastSwitchAt < wheelCooldownMs) return;
+    const threshold = Math.max(
+      wheelMinThresholdPx,
+      Math.min(wheelMaxThresholdPx, surface.clientWidth * wheelThresholdRatio),
+    );
+    if (Math.abs(wheelGesture.accumX) < threshold) return;
+    switchOpenSessionByOffset(wheelGesture.accumX > 0 ? 1 : -1);
+    wheelGesture = { accumX: 0, lastWheelAt: now, lastSwitchAt: now };
+  }, { passive: false });
+}
+
+function sendPromptToBridge(text, attachments = []) {
+  const trimmed = String(text || "").trim();
+  if ((!trimmed && !attachments.length) || !ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(
+    JSON.stringify({
+      type: "prompt",
+      token,
+      text: trimmed || "添付画像を確認してください。",
+      attachments,
+      options: {
+        model: selectedModel || undefined,
+        approvalPolicy: accessMode.approvalPolicy,
+        sandboxMode: accessMode.sandboxMode,
+      },
+    }),
+  );
+  return true;
+}
+
 function connect() {
   if (tokenRequired && !token) {
     addEntry("error", "URLに token がありません。Mac側に表示されたURLをそのまま開いてください。");
@@ -1542,6 +2521,7 @@ function connect() {
   }
   if (ws) ws.close();
   liveTurnActive = false;
+  remoteSessionState = null;
   setRunState("connecting");
   lastHistorySignature = "";
   renderHistory([]);
@@ -1562,6 +2542,7 @@ function connect() {
   ws = new WebSocket(`${proto}//${location.host}/bridge${bridgeQuery ? `?${bridgeQuery}` : ""}`);
   connectButton.disabled = true;
   meta.textContent = "接続中";
+  syncHeaderCwd();
 
   ws.addEventListener("open", () => {
     setRunState("connecting", "Codex に接続中");
@@ -1573,11 +2554,17 @@ function connect() {
     if (msg.type === "ready") {
       setReady(true);
       setCurrentWorkdir(msg.workdir);
-      syncReadyThread(msg.threadId);
+      const materialized = Boolean((msg.history || []).length);
+      syncReadyThread(msg.threadId, { prewarmTerminal: materialized });
       renderHistoryIfChanged(msg.history || []);
-      meta.textContent = `${msg.model}  •  ${msg.clients}端末  •  ${msg.workdir}`;
+      meta.textContent = `${msg.model}  •  ${msg.clients}端末`;
       setRunState("ready");
+      if (msg.sessionState) applyRemoteSessionState(msg.sessionState);
       addEntry("status", `共有Codex thread ready: ${msg.threadId}`);
+      return;
+    }
+    if (msg.type === "sessionState") {
+      applyRemoteSessionState(msg.state);
       return;
     }
     if (msg.type === "user") {
@@ -1606,12 +2593,13 @@ function connect() {
       lastHistorySignature = "";
       assistantEntry = null;
       setRunState("done", "完了しました");
+      ensureNativeTerminalConnected({ focus: activeMainMode === "terminal" });
       loadThreads();
       refreshSelectedThread();
-      appendReviewDigest();
       return;
     }
     if (msg.type === "error") {
+      if (recoverMissingSelectedThread(msg.text)) return;
       setRunState("error", msg.text || "エラー");
       addEntry("error", msg.text);
       return;
@@ -1635,23 +2623,16 @@ function connect() {
 composer.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = promptInput.value.trim();
-  if ((!text && !pendingFiles.length) || !ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(
-    JSON.stringify({
-      type: "prompt",
-      token,
-      text: text || "添付画像を確認してください。",
-      attachments: pendingFiles,
-      options: {
-        model: selectedModel || undefined,
-        approvalPolicy: accessMode.approvalPolicy,
-        sandboxMode: accessMode.sandboxMode,
-      },
-    }),
-  );
+  if (!sendPromptToBridge(text, pendingFiles)) return;
   promptInput.value = "";
   pendingFiles = [];
   renderAttachments();
+});
+promptInput.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    composer.requestSubmit();
+  }
 });
 
 approveButton.addEventListener("click", () => {
@@ -1670,7 +2651,7 @@ declineButton.addEventListener("click", () => {
   setRunState("running", "拒否済み・処理中");
 });
 
-newThreadButton.addEventListener("click", () => selectThread(""));
+newThreadButton.addEventListener("click", () => openSessionCreatePage());
 searchButton.addEventListener("click", () => {
   threadSearch.classList.toggle("hidden");
   threadSearch.focus();
@@ -1699,7 +2680,88 @@ menuButton.addEventListener("click", () => {
     addStatus("右パネルを開きました。");
   }
 });
+pathbarColorPicker?.addEventListener("input", () => {
+  savePathbarColorForCurrentWorkdir(pathbarColorPicker.value);
+});
+sessionSwitcher?.addEventListener("click", openSessionSwitcher);
+sessionSwitcher?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    openSessionSwitcher();
+  }
+});
+sessionSwitcherClose?.addEventListener("click", closeSessionSwitcher);
+sessionSwitcherNew?.addEventListener("click", () => openSessionCreatePage());
+sessionCreateCancel?.addEventListener("click", closeSessionCreatePage);
+sessionRecentClear?.addEventListener("click", clearSessionRecentHistory);
+sessionBrowserUp?.addEventListener("click", () => {
+  if (sessionBrowserParentPath) void loadSessionBrowser(sessionBrowserParentPath);
+});
+sessionDirectorySearch?.addEventListener("input", renderSessionBrowserEntries);
+sessionHiddenToggle?.addEventListener("change", () => {
+  sessionShowHidden = Boolean(sessionHiddenToggle.checked);
+  void loadSessionBrowser(sessionBrowserCurrentPath || defaultDeveloperPath(), { preserveSearch: true });
+});
+sessionStartButton?.addEventListener("click", startSelectedSession);
 closePanelButton.addEventListener("click", () => closeRightPanel({ restoreFocus: true }));
+for (const button of modeButtons) {
+  button.addEventListener("click", () => setMainMode(button.dataset.mainMode));
+}
+terminalReconnect?.addEventListener("click", () => {
+  setMainMode("terminal");
+  ensureNativeTerminalConnected({ force: true });
+});
+terminalThemeToggle?.addEventListener("click", () => {
+  terminalThemeMode = terminalThemeMode === "dark" ? "light" : "dark";
+  localStorage.setItem("codexTerminalThemeMode", terminalThemeMode);
+  applyTerminalTheme();
+});
+terminalZoomOut?.addEventListener("click", () => {
+  const index = terminalFontSizes.indexOf(terminalFontSize);
+  if (index <= 0) return;
+  terminalFontSize = terminalFontSizes[index - 1];
+  localStorage.setItem("codexTerminalFontSize", String(terminalFontSize));
+  applyTerminalFontSize();
+});
+terminalZoomIn?.addEventListener("click", () => {
+  const index = terminalFontSizes.indexOf(terminalFontSize);
+  if (index < 0 || index >= terminalFontSizes.length - 1) return;
+  terminalFontSize = terminalFontSizes[index + 1];
+  localStorage.setItem("codexTerminalFontSize", String(terminalFontSize));
+  applyTerminalFontSize();
+});
+for (const button of terminalModeButtons) {
+  button.addEventListener("click", () => setTerminalInputMode(button.dataset.terminalInputMode));
+}
+for (const button of terminalNativeInputButtons) {
+  button.addEventListener("click", () => sendNativeTerminalInput(button.dataset.terminalPtyInput || ""));
+}
+for (const button of terminalActionButtons) {
+  button.addEventListener("click", () => void handleTerminalAction(button.dataset.terminalAction));
+}
+terminalSend?.addEventListener("click", submitTerminalPrompt);
+terminalPrompt?.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    submitTerminalPrompt();
+  }
+});
+terminalPrompt?.addEventListener("input", () => {
+  if (terminalSend) terminalSend.textContent = terminalPrompt.value.length === 0 ? "Enter ↵" : "Send";
+});
+terminalCtrlCButton?.addEventListener("click", showTerminalCtrlCConfirm);
+terminalCtrlCCancel?.addEventListener("click", hideTerminalCtrlCConfirm);
+terminalCtrlCConfirmButton?.addEventListener("click", () => {
+  sendNativeTerminalInput("\u0003");
+  hideTerminalCtrlCConfirm();
+});
+terminalFileInput?.addEventListener("change", () => {
+  const file = terminalFileInput.files?.[0];
+  terminalFileInput.value = "";
+  if (!file) return;
+  appendTerminalPromptLine(`添付画像: ${file.name}`);
+  addStatus("画像名をターミナル入力欄に追加しました。実ファイルの参照が必要な場合はフォルダパスも追加してください。");
+});
 artifactPreview.addEventListener("click", (event) => {
   if (event.target.closest("[data-preview-close]")) hideArtifactPreview();
 });
@@ -1753,15 +2815,10 @@ document.addEventListener("click", async (event) => {
   const body = entry?.querySelector(".entry-body");
   const text = body?.markdownSource || body?.innerText || "";
   if (!text.trim()) return;
-  if (!navigator.clipboard?.writeText) {
-    appendToPrompt(text);
-    addStatus("クリップボードを利用できないため、入力欄へ追加しました。");
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(text);
+  const copied = await copyTextToClipboard(text);
+  if (copied) {
     addStatus("メッセージをコピーしました。");
-  } catch {
+  } else {
     appendToPrompt(text);
     addStatus("クリップボードに書き込めないため、入力欄へ追加しました。");
   }
@@ -1818,6 +2875,11 @@ for (const button of artifactButtons) {
 }
 
 setReady(false);
+setMainMode(activeMainMode);
+setTerminalInputMode(terminalInputMode);
+applyTerminalTheme();
+applyTerminalFontSize();
+if (terminalSend && terminalPrompt) terminalSend.textContent = terminalPrompt.value.length === 0 ? "Enter ↵" : "Send";
 setAccessButtonLabel();
 updateModelButton();
 modelButton.setAttribute("aria-haspopup", "menu");
@@ -1825,12 +2887,18 @@ modelButton.setAttribute("aria-expanded", "false");
 loadPanelWidths();
 bindResizeHandle(leftResizeHandle, "left");
 bindResizeHandle(rightResizeHandle, "right");
+bindSessionSwipe();
 syncSidebarState();
 syncRightPanelState();
+renderSessionChrome();
+renderSessionCreatePage();
 loadBridgeInfo()
   .then(() => loadArtifacts())
   .then(() => loadThreads().catch(() => {}))
-  .then(connect)
+  .then(() => {
+    restoreActiveSessionFromStorage();
+    connect();
+  })
   .catch(() => {
     setRunState("error", "bridge情報を確認できません");
   });

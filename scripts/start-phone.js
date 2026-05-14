@@ -6,10 +6,27 @@ const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const WebSocket = require("ws");
-const { bridgeKeyForRequest, shouldDisposeIdleBridge, shouldPromoteBridgeKey } = require("./bridge-state");
+const {
+  appServerArgs,
+} = require("./codex-app-server-config");
+const {
+  bridgeKeyForRequest,
+  retentionConfigFromEnv,
+  shouldDisposeIdleBridge,
+  shouldScheduleIdleCleanup,
+  shouldPromoteBridgeKey,
+} = require("./bridge-state");
 const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
 const { bridgeUrls, notifyBridgeUrls } = require("./phone-notify");
-const { findLiveBridge, readThreadSnapshot } = require("./thread-read");
+const { isSessionBusy, mergeSessionState, normalizeHookState } = require("./session-state");
+const { findLiveBridge, liveThreadSummaries, readThreadSnapshot } = require("./thread-read");
+
+let pty = null;
+try {
+  pty = require("node-pty");
+} catch {
+  pty = null;
+}
 
 const root = path.resolve(__dirname, "..");
 
@@ -42,6 +59,7 @@ function loadEnvFile(filePath) {
 })();
 
 const codexBin = path.join(root, "node_modules", ".bin", "codex");
+const codexTerminalBin = process.env.CODEX_TERMINAL_BIN || (fs.existsSync(codexBin) ? codexBin : "codex");
 const uiPort = Number(process.env.PHONE_UI_PORT || 45214);
 const codexPort = Number(process.env.CODEX_APP_SERVER_PORT || 45213);
 const codexSocketPath = process.env.CODEX_APP_SERVER_SOCK || "";
@@ -59,6 +77,9 @@ const listenHost = tokenRequired || debugLan ? "0.0.0.0" : "127.0.0.1";
 const tokenPath = path.join(root, ".phone-token");
 const uploadDir = path.join(root, ".uploads");
 const bridges = new Map();
+const terminalSessions = new Map();
+const sessionStates = new Map();
+const retainedSessionConfig = retentionConfigFromEnv(process.env);
 const historyLimit = 80;
 const imageExtensions = new Map([
   [".png", "image/png"],
@@ -77,6 +98,22 @@ const staticMimeTypes = new Map([
   [".svg", "image/svg+xml"],
   [".webmanifest", "application/manifest+json"],
 ]);
+
+function createIdleRetentionTimer(callback) {
+  const timer = setTimeout(callback, retainedSessionConfig.idleTtlMs);
+  timer.unref?.();
+  return timer;
+}
+
+function pruneIdleRetainedSessions(collection, dispose) {
+  if (collection.size <= retainedSessionConfig.maxSessions) return;
+  const idleItems = Array.from(collection.values())
+    .filter((item) => !item.clients?.size)
+    .sort((a, b) => (a.lastAccessAt || a.updatedAt || a.createdAt || 0) - (b.lastAccessAt || b.updatedAt || b.createdAt || 0));
+  while (collection.size > retainedSessionConfig.maxSessions && idleItems.length) {
+    dispose(idleItems.shift());
+  }
+}
 
 function getToken() {
   if (process.env.PHONE_TOKEN) return process.env.PHONE_TOKEN;
@@ -120,6 +157,64 @@ function createUpstreamWebSocket() {
     perMessageDeflate: false,
     createConnection: () => net.createConnection(codexSocketPath),
   });
+}
+
+function remoteHookUrl() {
+  return `http://127.0.0.1:${uiPort}/api/codex-hook`;
+}
+
+function remoteHookEnv(phoneToken) {
+  return {
+    CODEX_REMOTE_HOOK_URL: remoteHookUrl(),
+    CODEX_REMOTE_HOOK_TOKEN: phoneToken || "",
+  };
+}
+
+function stateKeyForSession(sessionId, cwd = "") {
+  if (sessionId) return `session:${sessionId}`;
+  return `cwd:${path.resolve(cwd || workdir)}`;
+}
+
+function sessionStateFor(threadId, cwd = "") {
+  const direct = sessionStates.get(stateKeyForSession(threadId, cwd));
+  if (direct) return direct;
+  if (!cwd) return null;
+  return sessionStates.get(stateKeyForSession("", cwd)) || null;
+}
+
+function sessionStateMatches(state, threadId, cwd = "") {
+  if (!state) return false;
+  if (threadId && state.sessionId && state.sessionId === threadId) return true;
+  if (cwd && state.cwd && path.resolve(state.cwd) === path.resolve(cwd)) return true;
+  return false;
+}
+
+function broadcastSessionState(state) {
+  for (const bridge of bridges.values()) {
+    if (!sessionStateMatches(state, bridge.threadId || bridge.requestedThreadId, bridge.cwd)) continue;
+    bridge.noteActivity?.();
+    bridge.emit("sessionState", { state });
+  }
+  for (const session of terminalSessions.values()) {
+    if (!sessionStateMatches(state, session.threadId, session.cwd)) continue;
+    session.noteActivity?.();
+    session.broadcast({ type: "sessionState", state });
+  }
+}
+
+function updateSessionState(statePatch) {
+  const key = stateKeyForSession(statePatch.sessionId, statePatch.cwd);
+  const previous = sessionStates.get(key);
+  const state = mergeSessionState(previous, statePatch);
+  sessionStates.set(key, state);
+  if (state.cwd) sessionStates.set(stateKeyForSession("", state.cwd), state);
+  broadcastSessionState(state);
+  if (!isSessionBusy(state)) {
+    for (const bridge of bridges.values()) {
+      if (sessionStateMatches(state, bridge.threadId || bridge.requestedThreadId, bridge.cwd)) bridge.startNextQueuedTurn?.();
+    }
+  }
+  return state;
 }
 
 class AppServerRpcClient {
@@ -210,11 +305,12 @@ class AppServerRpcClient {
 
 const appServerClient = new AppServerRpcClient();
 
-function startCodexServer() {
-  const child = spawn(codexBin, ["app-server", "--listen", codexUrl], {
+function startCodexServer(phoneToken = "") {
+  const child = spawn(codexBin, appServerArgs(codexUrl), {
     cwd: root,
     env: {
       ...process.env,
+      ...remoteHookEnv(phoneToken),
       PATH: `${path.join(root, "node_modules", ".bin")}:${process.env.PATH || ""}`,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -242,6 +338,32 @@ function sendJson(res, status, body) {
     "cache-control": "no-store",
   });
   res.end(JSON.stringify(body));
+}
+
+function readJsonBody(req, limit = 1_000_000) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > limit) {
+        reject(new Error("request body too large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (!body) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(body));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on("error", reject);
+  });
 }
 
 function requireToken(url, phoneToken, res) {
@@ -797,6 +919,12 @@ class SharedBridge {
     this.activeTurnId = null;
     this.ready = false;
     this.startupFailed = false;
+    this.materialized = Boolean(this.requestedThreadId);
+    this.createdAt = Date.now();
+    this.updatedAt = this.createdAt;
+    this.lastAccessAt = this.createdAt;
+    this.idleDeadlineAt = 0;
+    this.cleanupTimer = null;
     this.history = [];
     this.turnQueue = [];
     this.upstream = createUpstreamWebSocket();
@@ -804,6 +932,8 @@ class SharedBridge {
   }
 
   addClient(browser) {
+    this.cancelIdleCleanup();
+    this.touchAccess();
     this.clients.add(browser);
     this.emitTo(browser, "status", { text: "共有Codexブリッジに参加しました。" });
     if (this.ready) {
@@ -811,11 +941,47 @@ class SharedBridge {
     }
     browser.on("close", () => {
       this.clients.delete(browser);
-      if (shouldDisposeIdleBridge({ clientCount: this.clients.size, ready: this.ready })) {
-        this.upstream.close();
-        bridges.delete(this.bridgeKey);
+      if (shouldScheduleIdleCleanup({ clientCount: this.clients.size })) {
+        this.scheduleIdleCleanup();
+        pruneIdleRetainedSessions(bridges, (bridge) => bridge.dispose());
       }
     });
+  }
+
+  touchAccess() {
+    const now = Date.now();
+    this.lastAccessAt = now;
+    this.updatedAt = now;
+  }
+
+  cancelIdleCleanup() {
+    clearTimeout(this.cleanupTimer);
+    this.cleanupTimer = null;
+    this.idleDeadlineAt = 0;
+  }
+
+  scheduleIdleCleanup() {
+    this.cancelIdleCleanup();
+    this.idleDeadlineAt = Date.now() + retainedSessionConfig.idleTtlMs;
+    this.cleanupTimer = createIdleRetentionTimer(() => this.disposeIfIdle());
+  }
+
+  noteActivity() {
+    this.touchAccess();
+    if (!this.clients.size) this.scheduleIdleCleanup();
+  }
+
+  disposeIfIdle() {
+    if (!shouldDisposeIdleBridge({ clientCount: this.clients.size, idleDeadlineAt: this.idleDeadlineAt })) return;
+    this.dispose();
+  }
+
+  dispose() {
+    this.cancelIdleCleanup();
+    try {
+      this.upstream.close();
+    } catch {}
+    bridges.delete(this.bridgeKey);
   }
 
   readyPayload() {
@@ -826,6 +992,8 @@ class SharedBridge {
       shared: true,
       clients: this.clients.size,
       history: this.history,
+      materialized: this.materialized,
+      sessionState: sessionStateFor(this.threadId, this.cwd),
     };
   }
 
@@ -841,6 +1009,7 @@ class SharedBridge {
   }
 
   request(method, params) {
+    this.touchAccess();
     const id = this.nextId++;
     this.upstream.send(JSON.stringify({ id, method, params }));
     return id;
@@ -888,6 +1057,7 @@ class SharedBridge {
 
     this.upstream.on("message", (data) => {
       const msg = JSON.parse(data.toString());
+      this.noteActivity();
       const pendingMethod = this.pending.get(msg.id);
 
       if (pendingMethod === "thread/start" || pendingMethod === "thread/resume") {
@@ -901,7 +1071,9 @@ class SharedBridge {
         this.startupFailed = false;
         this.promoteBridgeKey();
         this.ready = true;
+        this.touchAccess();
         this.history = historyFromThread(msg.result.thread);
+        this.materialized = this.materialized || this.history.length > 0;
         this.emit("ready", this.readyPayload());
         if (this.requestedThreadId) this.emit("status", { text: `既存threadを再開しました: ${this.threadId}` });
         return;
@@ -914,6 +1086,19 @@ class SharedBridge {
           this.startNextQueuedTurn();
         } else {
           this.activeTurnId = msg.result.turn.id;
+          this.updatedAt = Date.now();
+          updateSessionState({
+            source: "app-server",
+            status: "running",
+            label: "Codex 処理中",
+            busy: true,
+            completed: false,
+            sessionId: this.threadId,
+            turnId: this.activeTurnId,
+            cwd: this.cwd,
+            event: "turn/start",
+            updatedAt: Date.now(),
+          });
           this.emit("turn", { status: "started", turnId: this.activeTurnId });
         }
         return;
@@ -941,6 +1126,20 @@ class SharedBridge {
 
       if (msg.method === "turn/completed") {
         this.activeTurnId = null;
+        this.updatedAt = Date.now();
+        this.materialized = true;
+        updateSessionState({
+          source: "app-server",
+          status: "input_ready",
+          label: "入力待ち",
+          busy: false,
+          completed: true,
+          sessionId: this.threadId,
+          turnId: msg.params.turnId,
+          cwd: this.cwd,
+          event: "turn/completed",
+          updatedAt: Date.now(),
+        });
         this.emit("turn", { status: "completed", turnId: msg.params.turnId });
         this.syncHistory("turn completed");
         this.startNextQueuedTurn();
@@ -948,6 +1147,18 @@ class SharedBridge {
       }
 
       if (msg.method && msg.method.endsWith("/requestApproval")) {
+        updateSessionState({
+          source: "app-server",
+          status: "awaiting_approval",
+          label: "承認待ち",
+          busy: true,
+          completed: false,
+          sessionId: this.threadId,
+          turnId: this.activeTurnId,
+          cwd: this.cwd,
+          event: msg.method,
+          updatedAt: Date.now(),
+        });
         this.emit("approval", { request: msg });
         return;
       }
@@ -971,11 +1182,12 @@ class SharedBridge {
   }
 
   prompt(text, attachments = [], options = {}) {
+    this.touchAccess();
     if (!this.threadId) {
       this.emit("error", { text: "Thread is not ready yet" });
       return;
     }
-    if (this.activeTurnId || this.hasPendingTurnStart()) {
+    if (this.activeTurnId || this.hasPendingTurnStart() || isSessionBusy(sessionStateFor(this.threadId, this.cwd))) {
       this.turnQueue.push({ text, attachments, options });
       this.emit("status", { text: `キューに追加しました（${this.turnQueue.length}件待機）` });
       return;
@@ -984,7 +1196,15 @@ class SharedBridge {
   }
 
   startNextQueuedTurn() {
-    if (!this.ready || this.activeTurnId || this.hasPendingTurnStart() || !this.turnQueue.length) return;
+    if (
+      !this.ready ||
+      this.activeTurnId ||
+      this.hasPendingTurnStart() ||
+      isSessionBusy(sessionStateFor(this.threadId, this.cwd)) ||
+      !this.turnQueue.length
+    ) {
+      return;
+    }
     const next = this.turnQueue.shift();
     this.emit("status", { text: `キューから送信中（残り${this.turnQueue.length}件）` });
     this.startPrompt(next.text, next.attachments, next.options);
@@ -1034,10 +1254,12 @@ class SharedBridge {
 
   appendHistory(entry) {
     this.history.push(entry);
+    this.touchAccess();
     this.history = capHistory(this.history);
   }
 
   approval(requestMsg, decision) {
+    this.touchAccess();
     if (!requestMsg || !requestMsg.id || !requestMsg.method) return;
     const accept = decision === "accept";
     let result;
@@ -1061,6 +1283,7 @@ function getBridge(threadId, connectionId = crypto.randomUUID(), options = {}) {
   }
   const key = options.forceNew && !threadId ? `new:${connectionId}` : bridgeKeyForRequest(threadId, connectionId);
   if (!bridges.has(key)) bridges.set(key, new SharedBridge(threadId, key, { cwd: options.cwd || workdir }));
+  pruneIdleRetainedSessions(bridges, (bridge) => bridge.dispose());
   return bridges.get(key);
 }
 
@@ -1080,9 +1303,201 @@ function bindBrowser(browser, phoneToken, threadId, options = {}) {
   });
 }
 
+function terminalKeyFor(threadId, cwd) {
+  return `${threadId || "new"}:${path.resolve(cwd || workdir)}`;
+}
+
+function terminalCodexArgs(threadId, cwd) {
+  const args = ["resume"];
+  if (!codexSocketPath && codexUrl) args.push("--remote", codexUrl);
+  args.push("-C", cwd);
+  args.push(threadId);
+  return args;
+}
+
+function isTerminalInterruptInput(data) {
+  const text = String(data || "");
+  return text === "\u001b" || text.includes("\u0003");
+}
+
+class TerminalPtySession {
+  constructor({ threadId, cwd, cols, rows }) {
+    this.threadId = threadId;
+    this.cwd = cwd || workdir;
+    this.clients = new Set();
+    this.buffer = "";
+    this.closed = false;
+    this.cleanupTimer = null;
+    this.createdAt = Date.now();
+    this.updatedAt = this.createdAt;
+    this.lastAccessAt = this.createdAt;
+    this.idleDeadlineAt = 0;
+    this.proc = this.spawn(cols, rows);
+  }
+
+  spawn(cols = 100, rows = 30) {
+    if (!pty) throw new Error("node-pty is not available. Run npm install before using terminal mode.");
+    if (!this.threadId) throw new Error("thread is required for Codex terminal resume");
+    const executable = codexTerminalBin;
+    const args = terminalCodexArgs(this.threadId, this.cwd);
+    const proc = pty.spawn(executable, args, {
+      cwd: this.cwd,
+      cols: Math.max(20, Number(cols) || 100),
+      rows: Math.max(8, Number(rows) || 30),
+      env: {
+        ...process.env,
+        ...remoteHookEnv(process.env.CODEX_REMOTE_HOOK_TOKEN || ""),
+        TERM: "xterm-256color",
+        COLORTERM: "truecolor",
+      },
+      name: "xterm-256color",
+    });
+    proc.onData((data) => {
+      this.appendBuffer(data);
+      this.broadcast({ type: "output", data });
+    });
+    proc.onExit(({ exitCode, signal }) => {
+      this.closed = true;
+      this.broadcast({ type: "exit", code: exitCode, signal });
+      terminalSessions.delete(terminalKeyFor(this.threadId, this.cwd));
+    });
+    return proc;
+  }
+
+  appendBuffer(data) {
+    this.noteActivity();
+    this.buffer += data;
+    if (this.buffer.length > 240_000) this.buffer = this.buffer.slice(-200_000);
+  }
+
+  addClient(ws) {
+    this.cancelIdleCleanup();
+    this.touchAccess();
+    this.clients.add(ws);
+    this.send(ws, { type: "status", text: "Codex CLI TUI に接続しました" });
+    const state = sessionStateFor(this.threadId, this.cwd);
+    if (state) this.send(ws, { type: "sessionState", state });
+    if (this.buffer) this.send(ws, { type: "snapshot", data: this.buffer });
+    ws.on("message", (data) => this.handleMessage(ws, data));
+    ws.on("close", () => {
+      this.clients.delete(ws);
+      if (shouldScheduleIdleCleanup({ clientCount: this.clients.size })) {
+        this.scheduleIdleCleanup();
+        pruneIdleRetainedSessions(terminalSessions, (retained) => retained.terminate());
+      }
+    });
+  }
+
+  touchAccess() {
+    const now = Date.now();
+    this.lastAccessAt = now;
+    this.updatedAt = now;
+  }
+
+  cancelIdleCleanup() {
+    clearTimeout(this.cleanupTimer);
+    this.cleanupTimer = null;
+    this.idleDeadlineAt = 0;
+  }
+
+  scheduleIdleCleanup() {
+    this.cancelIdleCleanup();
+    this.idleDeadlineAt = Date.now() + retainedSessionConfig.idleTtlMs;
+    this.cleanupTimer = createIdleRetentionTimer(() => this.disposeIfIdle());
+  }
+
+  noteActivity() {
+    this.touchAccess();
+    if (!this.clients.size) this.scheduleIdleCleanup();
+  }
+
+  disposeIfIdle() {
+    if (!shouldDisposeIdleBridge({ clientCount: this.clients.size, idleDeadlineAt: this.idleDeadlineAt })) return;
+    this.terminate();
+  }
+
+  handleMessage(ws, raw) {
+    let msg;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      this.send(ws, { type: "error", text: "invalid terminal message" });
+      return;
+    }
+    this.touchAccess();
+    if (msg.type === "input" && typeof msg.data === "string") {
+      const state = sessionStateFor(this.threadId, this.cwd);
+      const isInterrupt = isTerminalInterruptInput(msg.data);
+      if (state?.status === "running" && !isInterrupt) {
+        this.send(ws, { type: "status", text: "Codex 処理中のため、ターミナル入力を一時停止しています。" });
+        return;
+      }
+      this.proc.write(msg.data);
+      return;
+    }
+    if (msg.type === "resize") {
+      const cols = Math.max(20, Number(msg.cols) || 100);
+      const rows = Math.max(8, Number(msg.rows) || 30);
+      try {
+        this.proc.resize(cols, rows);
+      } catch {}
+      return;
+    }
+    if (msg.type === "terminate") {
+      this.terminate();
+    }
+  }
+
+  send(ws, payload) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+  }
+
+  broadcast(payload) {
+    for (const client of this.clients) this.send(client, payload);
+  }
+
+  terminate() {
+    if (this.closed) return;
+    this.closed = true;
+    this.cancelIdleCleanup();
+    try {
+      this.proc.kill("SIGTERM");
+    } catch {}
+    terminalSessions.delete(terminalKeyFor(this.threadId, this.cwd));
+  }
+}
+
+function getTerminalSession({ threadId, cwd, cols, rows }) {
+  const key = terminalKeyFor(threadId, cwd);
+  const existing = terminalSessions.get(key);
+  if (existing && !existing.closed) return existing;
+  const session = new TerminalPtySession({ threadId, cwd, cols, rows });
+  terminalSessions.set(key, session);
+  pruneIdleRetainedSessions(terminalSessions, (retained) => retained.terminate());
+  return session;
+}
+
+function bindTerminalSocket(ws, { threadId, cwd, cols, rows }) {
+  try {
+    const bridge = findLiveBridge(bridges, threadId);
+    if (bridge?.materialized === false && !process.env.CODEX_TERMINAL_BIN) {
+      ws.send(JSON.stringify({ type: "error", text: "初回メッセージ後に Codex CLI TUI を開始します。" }));
+      ws.close();
+      return;
+    }
+    const session = getTerminalSession({ threadId, cwd, cols, rows });
+    session.addClient(ws);
+  } catch (error) {
+    ws.send(JSON.stringify({ type: "error", text: error.message }));
+    ws.close(1011, "terminal failed");
+  }
+}
+
 async function main() {
   const phoneToken = tokenRequired ? getToken() : "";
-  const codex = shouldStartCodexServer ? startCodexServer() : null;
+  process.env.CODEX_REMOTE_HOOK_URL = remoteHookUrl();
+  process.env.CODEX_REMOTE_HOOK_TOKEN = phoneToken;
+  const codex = shouldStartCodexServer ? startCodexServer(phoneToken) : null;
   if (shouldStartCodexServer) {
     await waitForReady();
   } else {
@@ -1103,6 +1518,24 @@ async function main() {
       });
       return;
     }
+    if (url.pathname === "/api/codex-hook") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method not allowed" });
+        return;
+      }
+      if (tokenRequired && req.headers["x-codex-remote-hook-token"] !== phoneToken) {
+        sendJson(res, 401, { error: "invalid hook token" });
+        return;
+      }
+      try {
+        const payload = await readJsonBody(req);
+        const state = updateSessionState(normalizeHookState(payload));
+        sendJson(res, 200, { ok: true, state });
+      } catch (error) {
+        sendJson(res, 400, { error: error.message });
+      }
+      return;
+    }
     if (url.pathname === "/api/threads") {
       if (!requireToken(url, phoneToken, res)) return;
       try {
@@ -1117,6 +1550,13 @@ async function main() {
       } catch (error) {
         sendJson(res, 500, { error: error.message });
       }
+      return;
+    }
+    if (url.pathname === "/api/live-threads") {
+      if (!requireToken(url, phoneToken, res)) return;
+      sendJson(res, 200, {
+        data: liveThreadSummaries(bridges, { sessionStateFor }),
+      });
       return;
     }
     if (url.pathname === "/api/models") {
@@ -1176,7 +1616,10 @@ async function main() {
           workdir: bridge.cwd,
           clients: bridge.clients.size,
           ready: bridge.ready,
+          materialized: bridge.materialized,
+          sessionState: sessionStateFor(bridge.threadId, bridge.cwd),
         })),
+        sessionStates: Array.from(sessionStates.values()),
       });
       return;
     }
@@ -1215,6 +1658,7 @@ async function main() {
           model,
           workdir,
           historyFromThread,
+          refreshLiveBridge: true,
         });
         sendJson(res, 200, snapshot);
       } catch (error) {
@@ -1327,7 +1771,7 @@ async function main() {
   const wss = new WebSocket.Server({ noServer: true });
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    if (url.pathname !== "/bridge") {
+    if (url.pathname !== "/bridge" && url.pathname !== "/terminal") {
       socket.destroy();
       return;
     }
@@ -1344,9 +1788,23 @@ async function main() {
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) =>
-      bindBrowser(ws, phoneToken, threadId, { forceNew: url.searchParams.get("new") === "1", cwd: safeCwd?.absolute }),
-    );
+    if (url.pathname === "/terminal" && !threadId) {
+      socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      if (url.pathname === "/terminal") {
+        bindTerminalSocket(ws, {
+          threadId,
+          cwd: safeCwd?.absolute || workdir,
+          cols: Number(url.searchParams.get("cols") || 100),
+          rows: Number(url.searchParams.get("rows") || 30),
+        });
+        return;
+      }
+      bindBrowser(ws, phoneToken, threadId, { forceNew: url.searchParams.get("new") === "1", cwd: safeCwd?.absolute });
+    });
   });
 
   server.listen(uiPort, listenHost, () => {
@@ -1381,6 +1839,7 @@ async function main() {
 
   process.on("exit", () => {
     if (codex) codex.kill("SIGINT");
+    for (const session of terminalSessions.values()) session.terminate();
   });
 }
 
@@ -1403,5 +1862,6 @@ if (require.main === module) {
     safePathWithin,
     safeRelativePath,
     safeWorkdirPath,
+    normalizeHookState,
   };
 }
