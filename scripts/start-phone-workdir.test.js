@@ -134,6 +134,15 @@ test("newly created threads persist their cwd mapping for explicit reconnects", 
   assert.doesNotMatch(source, /if \(this\.requestedThreadId\)\s*\{\s*threadCwdMap\.set\(this\.threadId,\s*this\.cwd\);/);
 });
 
+test("slash command app-server turns stay active after request acknowledgement", () => {
+  const source = fs.readFileSync(path.join(__dirname, "start-phone.js"), "utf8");
+
+  assert.match(source, /if \(pendingMethod === "thread\/compact\/start" \|\| pendingMethod === "thread\/shellCommand"\)/);
+  assert.match(source, /this\.setBridgeRunState\("running", pendingMethod === "thread\/compact\/start" \? "Compaction 実行中" : "シェルコマンド実行中", this\.activeTurnId\);/);
+  assert.match(source, /this\.activeTurnId = crypto\.randomUUID\(\);\s*this\.setBridgeRunState\("running", "Compaction 実行中", this\.activeTurnId\);/);
+  assert.match(source, /this\.activeTurnId = crypto\.randomUUID\(\);\s*this\.setBridgeRunState\("running", "シェルコマンド実行中", this\.activeTurnId\);/);
+});
+
 test("safeDirectoryPath and readDirectoryListing stay inside the provided root", () => {
   const homeRoot = path.join(tempRoot, "home");
   const child = path.join(homeRoot, "project-a");
