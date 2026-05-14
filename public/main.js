@@ -174,11 +174,13 @@ const openSessionsStorageKey = "codexRemoteOpenSessions";
 const activeSessionStorageKey = "codexRemoteLastActiveSessionKey";
 const resumeSessionStorageKey = "codexRemoteResumeSession";
 const cwdHistoryStorageKey = "codexRemoteCwdHistory";
+const closedThreadIdsStorageKey = "codexRemoteClosedThreadIds";
 const maxCwdHistory = 8;
 let openSessions = readOpenSessions();
 let activeSessionKey = localStorage.getItem(activeSessionStorageKey) || "";
 let resumeCandidateSession = readResumeSession();
 let cwdHistory = readCwdHistory();
+let closedThreadIds = readClosedThreadIds();
 let sessionCreateCwd = localStorage.getItem("codexRemoteLastCwd") || "";
 let sessionBrowserCurrentPath = sessionCreateCwd || "";
 let sessionBrowserParentPath = "";
@@ -333,6 +335,32 @@ function readCwdHistory() {
   }
 }
 
+function readClosedThreadIds() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(closedThreadIdsStorageKey) || "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistClosedThreadIds() {
+  localStorage.setItem(closedThreadIdsStorageKey, JSON.stringify(Array.from(closedThreadIds)));
+}
+
+function rememberClosedThread(threadId) {
+  const id = String(threadId || "");
+  if (!id) return;
+  closedThreadIds.add(id);
+  persistClosedThreadIds();
+}
+
+function forgetClosedThread(threadId) {
+  const id = String(threadId || "");
+  if (!id || !closedThreadIds.delete(id)) return;
+  persistClosedThreadIds();
+}
+
 function sessionKeyFor(threadId = "", cwd = "") {
   return `${threadId || "new"}::${cwd || ""}`;
 }
@@ -418,6 +446,7 @@ function addOrUpdateOpenSession(input) {
     updatedAt: Date.now(),
   });
   if (!session) return null;
+  forgetClosedThread(session.threadId);
   const index = openSessions.findIndex((item) => item.key === session.key);
   if (index >= 0) openSessions[index] = { ...openSessions[index], ...session };
   else openSessions.push(session);
@@ -435,6 +464,7 @@ function syncOpenSessionsFromThreads() {
   const known = new Map(openSessions.map((item) => [item.threadId, item]));
   for (const thread of threadCache) {
     if (!thread.id) continue;
+    if (closedThreadIds.has(thread.id) && thread.id !== selectedThread) continue;
     const existing = known.get(thread.id);
     if (existing) {
       existing.cwd = thread.cwd || existing.cwd;
@@ -454,7 +484,7 @@ function syncOpenSessionsFromThreads() {
     );
   }
   openSessions = openSessions
-    .filter((session) => session && (!session.threadId || liveIds.has(session.threadId)))
+    .filter((session) => session && (!session.threadId || (liveIds.has(session.threadId) && !closedThreadIds.has(session.threadId))))
     .sort((a, b) => a.updatedAt - b.updatedAt);
   if (previousActive?.threadId && !liveIds.has(previousActive.threadId)) persistResumeSession(previousActive);
   if (selectedThread && !liveIds.has(selectedThread)) {
@@ -506,6 +536,7 @@ function removeOpenSession(sessionKey) {
   const index = openSessions.findIndex((session) => session.key === sessionKey);
   if (index < 0) return;
   const [removed] = openSessions.splice(index, 1);
+  rememberClosedThread(removed?.threadId);
   if (removed?.threadId === selectedThread) {
     const neighbor = openSessions[index] || openSessions[Math.max(0, index - 1)] || null;
     activeSessionKey = neighbor?.key || "";

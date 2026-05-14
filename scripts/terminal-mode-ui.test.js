@@ -78,12 +78,18 @@ test("browser logic attaches terminal mode to the selected Codex thread through 
   assert.match(main, /terminal-copy-textarea/);
   assert.match(main, /const openSessionsStorageKey = "codexRemoteOpenSessions"/);
   assert.match(main, /const activeSessionStorageKey = "codexRemoteLastActiveSessionKey"/);
+  assert.match(main, /const closedThreadIdsStorageKey = "codexRemoteClosedThreadIds"/);
+  assert.match(main, /function rememberClosedThread\(threadId\)/);
+  assert.match(main, /function forgetClosedThread\(threadId\)/);
   assert.match(main, /function addOrUpdateOpenSession\(input\)/);
+  assert.match(main, /forgetClosedThread\(session\.threadId\)/);
   assert.match(main, /apiGet\("\/api\/live-threads"\)/);
   assert.doesNotMatch(main, /apiGet\("\/api\/threads"\)/);
   assert.match(main, /稼働中ではないthreadの履歴表示を停止しました/);
   assert.match(main, /function syncOpenSessionsFromThreads\(\)/);
+  assert.match(main, /closedThreadIds\.has\(thread\.id\)/);
   assert.match(main, /liveIds\.has\(session\.threadId\)/);
+  assert.match(main, /rememberClosedThread\(removed\?\.threadId\)/);
   assert.match(main, /function switchOpenSessionByOffset\(offset\)/);
   assert.match(main, /function bindSessionSwipe\(\)/);
   assert.match(main, /const sessionHiddenToggle = document\.querySelector\("#sessionHiddenToggle"\)/);
