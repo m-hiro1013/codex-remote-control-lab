@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { approvalKind, approvalRecordForClient, approvalResultForDecision, createApprovalStore, isApprovalRequest } = require("./approval-store");
+const { approvalKind, approvalRecordForClient, approvalResultForDecision, createApprovalStore, isApprovalRequest, EVICT_RESOLVED_AGE_MS } = require("./approval-store");
 
 test("approvalKind classifies Codex approval methods", () => {
   assert.equal(approvalKind("item/commandExecution/requestApproval"), "commandExecution");
@@ -103,4 +103,32 @@ test("approvalResultForDecision preserves Codex accept decline payloads", () => 
   assert.deepEqual(approvalResultForDecision({ method: "execCommandApproval" }, "accept", { acceptForSession: true }), {
     decision: "approved_for_session",
   });
+});
+
+test("approval store evicts resolved approvals older than threshold", () => {
+  const store = createApprovalStore();
+  const pendingRecord = store.register({
+    bridgeKey: "thread-123",
+    threadId: "thread-123",
+    turnId: "turn-1",
+    request: { id: 1, method: "item/commandExecution/requestApproval", params: { command: "echo pending" } },
+  });
+  const resolvedRecord = store.register({
+    bridgeKey: "thread-123",
+    threadId: "thread-123",
+    turnId: "turn-1",
+    request: { id: 2, method: "item/fileChange/requestApproval", params: { path: "README.md" } },
+  });
+
+  store.resolve("thread-123:2", "accept");
+
+  const beforeList = store.list();
+  assert.equal(beforeList.length, 2);
+
+  resolvedRecord.resolvedAt = Date.now() - EVICT_RESOLVED_AGE_MS - 1000;
+
+  const afterList = store.list();
+  assert.equal(afterList.length, 1);
+  assert.equal(afterList[0].approvalId, "thread-123:1");
+  assert.equal(afterList[0].status, "pending");
 });

@@ -41,8 +41,19 @@ function approvalResultForDecision(requestMsg, decision, options = {}) {
   return { decision: accept ? "accept" : "decline" };
 }
 
+const EVICT_RESOLVED_AGE_MS = 60_000;
+
 function createApprovalStore() {
   const records = new Map();
+
+  function evictResolved() {
+    const cutoff = Date.now() - EVICT_RESOLVED_AGE_MS;
+    for (const [approvalId, record] of records.entries()) {
+      if (record.status !== "pending" && record.resolvedAt && record.resolvedAt < cutoff) {
+        records.delete(approvalId);
+      }
+    }
+  }
 
   function register({ bridgeKey, threadId, turnId, request }) {
     if (request?.id === undefined || request?.id === null || !request?.method) return null;
@@ -68,6 +79,7 @@ function createApprovalStore() {
   }
 
   function list(filter = {}) {
+    evictResolved();
     return Array.from(records.values()).filter((record) => {
       if (filter.status && record.status !== filter.status) return false;
       if (filter.bridgeKey && record.bridgeKey !== filter.bridgeKey) return false;
@@ -87,6 +99,7 @@ function createApprovalStore() {
   }
 
   function resolve(approvalId, decision) {
+    evictResolved();
     const result = resolveDetailed(approvalId, decision);
     return result.status === "resolved" ? result.record : null;
   }
@@ -122,4 +135,5 @@ module.exports = {
   approvalResultForDecision,
   createApprovalStore,
   isApprovalRequest,
+  EVICT_RESOLVED_AGE_MS,
 };
