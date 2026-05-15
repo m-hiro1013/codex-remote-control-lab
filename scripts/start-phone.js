@@ -22,6 +22,7 @@ const { createApiRoutes } = require("./server/api-routes");
 const { createCodexAppServerRuntime } = require("./server/codex-app-server-runtime");
 const { createHttpSurface } = require("./server/http-surface");
 const { sandboxPolicyForMode } = require("./server/sandbox-policy");
+const { parseWebSocketUpgradeRequest, writeUpgradeRejection } = require("./server/websocket-upgrade");
 const { createWorkspaceAccess } = require("./server/workspace-access");
 
 let pty = null;
@@ -1023,39 +1024,28 @@ async function main() {
   const wss = new WebSocket.Server({ noServer: true });
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    if (url.pathname !== "/bridge" && url.pathname !== "/terminal") {
-      socket.destroy();
-      return;
-    }
-    if (tokenRequired && url.searchParams.get("token") !== phoneToken) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    const threadId = url.searchParams.get("thread") || null;
-    const requestedCwd = url.searchParams.get("cwd");
-    const safeCwd = requestedCwd ? safeDirectoryPath(requestedCwd, os.homedir()) : null;
-    if (requestedCwd && !safeCwd) {
-      socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    if (url.pathname === "/terminal" && !threadId) {
-      socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-      socket.destroy();
+    const upgrade = parseWebSocketUpgradeRequest({
+      defaultWorkdir: workdir,
+      phoneToken,
+      safeDirectoryPath,
+      tokenRequired,
+      url,
+    });
+    if (!upgrade.ok) {
+      writeUpgradeRejection(socket, upgrade);
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      if (url.pathname === "/terminal") {
+      if (upgrade.kind === "terminal") {
         bindTerminalSocket(ws, {
-          threadId,
-          cwd: safeCwd?.absolute || workdir,
-          cols: Number(url.searchParams.get("cols") || 100),
-          rows: Number(url.searchParams.get("rows") || 30),
+          threadId: upgrade.threadId,
+          cwd: upgrade.cwd,
+          cols: upgrade.cols,
+          rows: upgrade.rows,
         });
         return;
       }
-      bindBrowser(ws, phoneToken, threadId, { forceNew: url.searchParams.get("new") === "1", cwd: safeCwd?.absolute });
+      bindBrowser(ws, phoneToken, upgrade.threadId, { forceNew: upgrade.forceNew, cwd: upgrade.cwd });
     });
   });
 
