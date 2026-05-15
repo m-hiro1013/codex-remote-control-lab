@@ -20,6 +20,7 @@ const { isSessionBusy, mergeSessionState, normalizeHookState } = require("./sess
 const { findLiveBridge, liveThreadSummaries, readThreadSnapshot } = require("./thread-read");
 const { createApiRoutes } = require("./server/api-routes");
 const { createBridgeRegistry } = require("./server/bridge-registry");
+const { createBrowserSocketBinder } = require("./server/browser-socket");
 const { createCodexAppServerRuntime } = require("./server/codex-app-server-runtime");
 const { approvalResponseFor, prepareTurnStart } = require("./server/bridge-turn");
 const { createHttpSurface } = require("./server/http-surface");
@@ -369,21 +370,11 @@ const bridgeRegistry = createBridgeRegistry({
 
 const { getBridge } = bridgeRegistry;
 
-function bindBrowser(browser, phoneToken, threadId, options = {}) {
-  const bridge = getBridge(threadId, crypto.randomUUID(), options);
-  bridge.addClient(browser);
-
-  browser.on("message", (data) => {
-    const msg = JSON.parse(data.toString());
-    if (tokenRequired && msg.token !== phoneToken) {
-      bridge.emitTo(browser, "error", { text: "Invalid token" });
-      browser.close();
-      return;
-    }
-    if (msg.type === "prompt") bridge.prompt(msg.text, msg.attachments, msg.options);
-    if (msg.type === "approval") bridge.approval(msg.request, msg.decision);
-  });
-}
+const bindBrowser = createBrowserSocketBinder({
+  getBridge,
+  randomUUID: crypto.randomUUID,
+  tokenRequired,
+});
 
 async function main() {
   const phoneToken = tokenRequired ? getToken() : "";
