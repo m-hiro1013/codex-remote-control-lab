@@ -24,6 +24,7 @@ const { createBrowserSocketBinder } = require("./server/browser-socket");
 const { createCodexAppServerRuntime } = require("./server/codex-app-server-runtime");
 const { approvalResponseFor, prepareTurnStart } = require("./server/bridge-turn");
 const { createHttpSurface } = require("./server/http-surface");
+const { createPhoneHttpServer } = require("./server/phone-server");
 const { sandboxPolicyForMode } = require("./server/sandbox-policy");
 const { createSharedBridgeClass } = require("./server/shared-bridge");
 const {
@@ -388,38 +389,19 @@ async function main() {
     await appServerRequest("thread/loaded/list", { cursor: null, limit: 1 });
   }
 
-  const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    if (await handleApiRequest(req, res, url, phoneToken)) return;
-    serveStatic(req, res);
-  });
-
-  const wss = new WebSocket.Server({ noServer: true });
-  server.on("upgrade", (req, socket, head) => {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const upgrade = parseWebSocketUpgradeRequest({
-      defaultWorkdir: workdir,
-      phoneToken,
-      safeDirectoryPath,
-      tokenRequired,
-      url,
-    });
-    if (!upgrade.ok) {
-      writeUpgradeRejection(socket, upgrade);
-      return;
-    }
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      if (upgrade.kind === "terminal") {
-        bindTerminalSocket(ws, {
-          threadId: upgrade.threadId,
-          cwd: upgrade.cwd,
-          cols: upgrade.cols,
-          rows: upgrade.rows,
-        });
-        return;
-      }
-      bindBrowser(ws, phoneToken, upgrade.threadId, { forceNew: upgrade.forceNew, cwd: upgrade.cwd });
-    });
+  const { server } = createPhoneHttpServer({
+    bindBrowser,
+    bindTerminalSocket,
+    createHttpServer: http.createServer,
+    createWebSocketServer: () => new WebSocket.Server({ noServer: true }),
+    defaultWorkdir: workdir,
+    handleApiRequest,
+    parseWebSocketUpgradeRequest,
+    phoneToken,
+    safeDirectoryPath,
+    serveStatic,
+    tokenRequired,
+    writeUpgradeRejection,
   });
 
   server.listen(uiPort, listenHost, () => {
