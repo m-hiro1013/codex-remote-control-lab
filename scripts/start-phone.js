@@ -18,6 +18,7 @@ const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
 const { bridgeUrls, notifyBridgeUrls } = require("./phone-notify");
 const { isSessionBusy, mergeSessionState, normalizeHookState } = require("./session-state");
 const { findLiveBridge, liveThreadSummaries, readThreadSnapshot } = require("./thread-read");
+const { createApiRoutes } = require("./server/api-routes");
 const { createCodexAppServerRuntime } = require("./server/codex-app-server-runtime");
 const { createHttpSurface } = require("./server/http-surface");
 const { sandboxPolicyForMode } = require("./server/sandbox-policy");
@@ -154,6 +155,45 @@ const {
   publicRoot: path.join(root, "public"),
   staticMimeTypes,
   tokenRequired,
+});
+
+const { handleApiRequest } = createApiRoutes({
+  appServerRequest,
+  authMode,
+  bridges,
+  codexPort,
+  codexSocketPath,
+  codexUrl,
+  discoverArtifacts,
+  discoverWorkspaceEntries,
+  findLiveBridge,
+  historyFromThread,
+  historySyncEnabled,
+  isImagePath,
+  liveThreadSummaries,
+  mimeForPath,
+  model,
+  normalizeHookState,
+  readAutomations,
+  readDirectoryListing,
+  readJsonBody,
+  readSkills,
+  readThreadSnapshot,
+  relativeDisplayPath,
+  requireToken,
+  reviewSummary,
+  runHistorySync,
+  safeDirectoryPath,
+  safeOpenPath,
+  safeUploadPath,
+  sendJson,
+  sessionStateFor,
+  sessionStates,
+  shouldStartCodexServer,
+  tokenRequired,
+  uiPort,
+  updateSessionState,
+  workdir,
 });
 
 function writeRemoteHookRuntime() {
@@ -976,265 +1016,7 @@ async function main() {
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
-    if (url.pathname === "/api/info") {
-      sendJson(res, 200, {
-        model,
-        workdir,
-        codexUrl,
-        codexSocketPath: codexSocketPath || null,
-        managedCodexServer: shouldStartCodexServer,
-        tokenRequired,
-        authMode,
-      });
-      return;
-    }
-    if (url.pathname === "/api/codex-hook") {
-      if (req.method !== "POST") {
-        sendJson(res, 405, { error: "method not allowed" });
-        return;
-      }
-      if (tokenRequired && req.headers["x-codex-remote-hook-token"] !== phoneToken) {
-        sendJson(res, 401, { error: "invalid hook token" });
-        return;
-      }
-      try {
-        const payload = await readJsonBody(req);
-        const state = updateSessionState(normalizeHookState(payload));
-        sendJson(res, 200, { ok: true, state });
-      } catch (error) {
-        sendJson(res, 400, { error: error.message });
-      }
-      return;
-    }
-    if (url.pathname === "/api/threads") {
-      if (!requireToken(url, phoneToken, res)) return;
-      try {
-        const result = await appServerRequest("thread/list", {
-          limit: 30,
-          sortKey: "updated_at",
-          sortDirection: "desc",
-          archived: false,
-          useStateDbOnly: false,
-        });
-        sendJson(res, 200, result);
-      } catch (error) {
-        sendJson(res, 500, { error: error.message });
-      }
-      return;
-    }
-    if (url.pathname === "/api/live-threads") {
-      if (!requireToken(url, phoneToken, res)) return;
-      sendJson(res, 200, {
-        data: liveThreadSummaries(bridges, { sessionStateFor }),
-      });
-      return;
-    }
-    if (url.pathname === "/api/models") {
-      if (!requireToken(url, phoneToken, res)) return;
-      try {
-        const result = await appServerRequest("model/list", { limit: 80, includeHidden: false });
-        sendJson(res, 200, result);
-      } catch (error) {
-        sendJson(res, 500, { error: error.message });
-      }
-      return;
-    }
-    if (url.pathname === "/api/plugins") {
-      if (!requireToken(url, phoneToken, res)) return;
-      try {
-        const result = await appServerRequest("plugin/list", { cwds: [workdir] });
-        sendJson(res, 200, result);
-      } catch (error) {
-        sendJson(res, 500, { error: error.message });
-      }
-      return;
-    }
-    if (url.pathname === "/api/config") {
-      if (!requireToken(url, phoneToken, res)) return;
-      try {
-        const [config, auth] = await Promise.allSettled([
-          appServerRequest("config/read", { includeLayers: false, cwd: workdir }),
-          appServerRequest("getAuthStatus", {}),
-        ]);
-        sendJson(res, 200, {
-          config: config.status === "fulfilled" ? config.value : null,
-          auth: auth.status === "fulfilled" ? auth.value : null,
-          errors: [config, auth]
-            .filter((result) => result.status === "rejected")
-            .map((result) => result.reason.message),
-        });
-      } catch (error) {
-        sendJson(res, 500, { error: error.message });
-      }
-      return;
-    }
-    if (url.pathname === "/api/status") {
-      if (!requireToken(url, phoneToken, res)) return;
-      sendJson(res, 200, {
-        workdir,
-        model,
-        codexUrl,
-        codexSocketPath: codexSocketPath || null,
-        managedCodexServer: shouldStartCodexServer,
-        historySyncEnabled,
-        tokenRequired,
-        authMode,
-        uiPort,
-        codexPort,
-        bridges: Array.from(bridges.values()).map((bridge) => ({
-          threadId: bridge.threadId,
-          workdir: bridge.cwd,
-          clients: bridge.clients.size,
-          ready: bridge.ready,
-          materialized: bridge.materialized,
-          sessionState: sessionStateFor(bridge.threadId, bridge.cwd),
-        })),
-        sessionStates: Array.from(sessionStates.values()),
-      });
-      return;
-    }
-    if (url.pathname === "/api/history-sync") {
-      if (!requireToken(url, phoneToken, res)) return;
-      const threadId = url.searchParams.get("thread");
-      if (!threadId) {
-        sendJson(res, 400, { error: "thread is required" });
-        return;
-      }
-      try {
-        const result = await runHistorySync({
-          threadId,
-          workdir,
-          request: appServerRequest,
-          enabled: historySyncEnabled,
-        });
-        sendJson(res, 200, result);
-      } catch (error) {
-        sendJson(res, 500, { error: error.message });
-      }
-      return;
-    }
-    if (url.pathname === "/api/thread") {
-      if (!requireToken(url, phoneToken, res)) return;
-      const threadId = url.searchParams.get("thread");
-      if (!threadId) {
-        sendJson(res, 400, { error: "thread is required" });
-        return;
-      }
-      try {
-        const snapshot = await readThreadSnapshot({
-          threadId,
-          liveBridge: findLiveBridge(bridges, threadId),
-          request: appServerRequest,
-          model,
-          workdir,
-          historyFromThread,
-          refreshLiveBridge: true,
-        });
-        sendJson(res, 200, snapshot);
-      } catch (error) {
-        sendJson(res, 500, { error: error.message });
-      }
-      return;
-    }
-    if (url.pathname === "/api/automations") {
-      if (!requireToken(url, phoneToken, res)) return;
-      sendJson(res, 200, { data: readAutomations() });
-      return;
-    }
-    if (url.pathname === "/api/skills") {
-      if (!requireToken(url, phoneToken, res)) return;
-      sendJson(res, 200, { data: readSkills() });
-      return;
-    }
-    if (url.pathname === "/api/fs/root") {
-      if (!requireToken(url, phoneToken, res)) return;
-      const home = safeDirectoryPath(os.homedir(), os.homedir());
-      sendJson(res, 200, { root: home?.absolute || os.homedir() });
-      return;
-    }
-    if (url.pathname === "/api/fs/list") {
-      if (!requireToken(url, phoneToken, res)) return;
-      const listing = readDirectoryListing(url.searchParams.get("path"), url.searchParams.get("hidden") === "1", os.homedir());
-      if (!listing) {
-        sendJson(res, 404, { error: "directory not found or outside home" });
-        return;
-      }
-      sendJson(res, 200, listing);
-      return;
-    }
-    if (url.pathname === "/api/artifacts") {
-      if (!requireToken(url, phoneToken, res)) return;
-      sendJson(res, 200, { data: discoverArtifacts() });
-      return;
-    }
-    if (url.pathname === "/api/workspace") {
-      if (!requireToken(url, phoneToken, res)) return;
-      try {
-        sendJson(res, 200, {
-          data: await discoverWorkspaceEntries({
-            limit: Number(url.searchParams.get("limit") || 200),
-            query: url.searchParams.get("q") || "",
-          }),
-        });
-      } catch (error) {
-        sendJson(res, 500, { error: error.message });
-      }
-      return;
-    }
-    if (url.pathname === "/api/review") {
-      if (!requireToken(url, phoneToken, res)) return;
-      try {
-        sendJson(res, 200, await reviewSummary());
-      } catch (error) {
-        sendJson(res, 500, { error: error.message });
-      }
-      return;
-    }
-    if (url.pathname === "/api/uploaded") {
-      if (!requireToken(url, phoneToken, res)) return;
-      const target = safeUploadPath(url.searchParams.get("name"));
-      if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile() || !isImagePath(target)) {
-        sendJson(res, 404, { error: "image not found" });
-        return;
-      }
-      res.writeHead(200, { "content-type": mimeForPath(target), "cache-control": "no-store" });
-      fs.createReadStream(target).pipe(res);
-      return;
-    }
-    if (url.pathname === "/api/file/raw") {
-      if (!requireToken(url, phoneToken, res)) return;
-      const target = safeOpenPath(url.searchParams.get("path"));
-      if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile() || !isImagePath(target)) {
-        sendJson(res, 404, { error: "image not found" });
-        return;
-      }
-      res.writeHead(200, { "content-type": mimeForPath(target), "cache-control": "no-store" });
-      fs.createReadStream(target).pipe(res);
-      return;
-    }
-    if (url.pathname === "/api/file") {
-      if (!requireToken(url, phoneToken, res)) return;
-      const target = safeOpenPath(url.searchParams.get("path"));
-      if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
-        sendJson(res, 404, { error: "file not found" });
-        return;
-      }
-      if (isImagePath(target)) {
-        sendJson(res, 200, {
-          path: relativeDisplayPath(target),
-          kind: "image",
-          mimeType: mimeForPath(target),
-          imageUrl: `/api/file/raw?path=${encodeURIComponent(relativeDisplayPath(target))}`,
-        });
-        return;
-      }
-      sendJson(res, 200, {
-        path: relativeDisplayPath(target),
-        kind: /\.md(?:own)?$/i.test(target) ? "markdown" : "text",
-        text: fs.readFileSync(target, "utf8").slice(0, 80_000),
-      });
-      return;
-    }
+    if (await handleApiRequest(req, res, url, phoneToken)) return;
     serveStatic(req, res);
   });
 
