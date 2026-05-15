@@ -184,11 +184,12 @@ test("browser logic attaches terminal mode to the selected Codex thread through 
 
 test("phone bridge exposes a PTY terminal websocket instead of smart-cli iframe configuration", () => {
   const server = read("scripts/start-phone.js");
+  const sharedBridge = read("scripts/server/shared-bridge.js");
   assert.match(server, /require\("node-pty"\)/);
   assert.match(server, /retainedSessionConfig = retentionConfigFromEnv\(process\.env\)/);
   assert.match(server, /createIdleRetentionTimer/);
-  assert.match(server, /scheduleIdleCleanup/);
-  assert.match(server, /pruneIdleRetainedSessions\(bridges/);
+  assert.match(sharedBridge, /scheduleIdleCleanup/);
+  assert.match(sharedBridge, /pruneIdleRetainedSessions\(bridges/);
   assert.match(read("scripts/server/terminal-pty-runtime.js"), /pruneIdleRetainedSessions\(terminalSessions/);
   assert.match(read("scripts/server/terminal-pty-runtime.js"), /class TerminalPtySession/);
   assert.match(server, /\/api\/codex-hook/);
