@@ -30,5 +30,6 @@ test("public startup contracts use the shared app-server entrypoint", () => {
   const pkg = JSON.parse(read("package.json"));
   assert.equal(pkg.scripts["server:ws"], "node scripts/start-codex-app-server.js");
   assert.match(read("ops/launchd/com.sunwood.codex-remote-control-lab.codex.plist"), /node scripts\/start-codex-app-server\.js/);
-  assert.match(read("scripts/start-phone.js"), /appServerArgs\(codexUrl\)/);
+  assert.match(read("scripts/start-phone.js"), /createCodexAppServerRuntime\(\{/);
+  assert.match(read("scripts/server/codex-app-server-runtime.js"), /appServerArgs\(codexUrl\)/);
 });
