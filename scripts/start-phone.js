@@ -19,6 +19,7 @@ const { bridgeUrls, notifyBridgeUrls } = require("./phone-notify");
 const { isSessionBusy, mergeSessionState, normalizeHookState } = require("./session-state");
 const { findLiveBridge, liveThreadSummaries, readThreadSnapshot } = require("./thread-read");
 const { createApiRoutes } = require("./server/api-routes");
+const { createBridgeRegistry } = require("./server/bridge-registry");
 const { createCodexAppServerRuntime } = require("./server/codex-app-server-runtime");
 const { approvalResponseFor, prepareTurnStart } = require("./server/bridge-turn");
 const { createHttpSurface } = require("./server/http-surface");
@@ -356,20 +357,17 @@ const SharedBridge = createSharedBridgeClass({
   webSocketOpenState: WebSocket.OPEN,
 });
 
-function getBridge(threadId, connectionId = crypto.randomUUID(), options = {}) {
-  const canonicalThreadId = resolveThreadAlias(threadId);
-  if (!threadId && !options.forceNew) {
-    for (const bridge of bridges.values()) {
-      if (!bridge.requestedThreadId) return bridge;
-    }
-  }
-  const existing = findLiveBridge(bridges, canonicalThreadId);
-  if (existing) return existing;
-  const key = options.forceNew && !canonicalThreadId ? `new:${connectionId}` : bridgeKeyForRequest(canonicalThreadId, connectionId);
-  if (!bridges.has(key)) bridges.set(key, new SharedBridge(canonicalThreadId, key, { cwd: options.cwd || workdir }));
-  pruneIdleRetainedSessions(bridges, (bridge) => bridge.dispose());
-  return bridges.get(key);
-}
+const bridgeRegistry = createBridgeRegistry({
+  bridgeKeyForRequest,
+  bridges,
+  createBridge: (threadId, bridgeKey, options) => new SharedBridge(threadId, bridgeKey, options),
+  defaultWorkdir: workdir,
+  findLiveBridge: (threadId) => findLiveBridge(bridges, threadId),
+  pruneIdleRetainedSessions,
+  threadAliases,
+});
+
+const { getBridge } = bridgeRegistry;
 
 function bindBrowser(browser, phoneToken, threadId, options = {}) {
   const bridge = getBridge(threadId, crypto.randomUUID(), options);
@@ -385,19 +383,6 @@ function bindBrowser(browser, phoneToken, threadId, options = {}) {
     if (msg.type === "prompt") bridge.prompt(msg.text, msg.attachments, msg.options);
     if (msg.type === "approval") bridge.approval(msg.request, msg.decision);
   });
-}
-
-function resolveThreadAlias(threadId) {
-  let current = threadId;
-  const visited = new Set();
-  while (current && threadAliases.has(current) && !visited.has(current)) {
-    visited.add(current);
-    current = threadAliases.get(current);
-  }
-  if (!current || current === threadId) return threadId;
-  if (findLiveBridge(bridges, current)) return current;
-  threadAliases.delete(threadId);
-  return threadId;
 }
 
 async function main() {
