@@ -189,13 +189,13 @@ test("phone bridge exposes a PTY terminal websocket instead of smart-cli iframe 
   assert.match(server, /createIdleRetentionTimer/);
   assert.match(server, /scheduleIdleCleanup/);
   assert.match(server, /pruneIdleRetainedSessions\(bridges/);
-  assert.match(server, /pruneIdleRetainedSessions\(terminalSessions/);
-  assert.match(server, /class TerminalPtySession/);
+  assert.match(read("scripts/server/terminal-pty-runtime.js"), /pruneIdleRetainedSessions\(terminalSessions/);
+  assert.match(read("scripts/server/terminal-pty-runtime.js"), /class TerminalPtySession/);
   assert.match(server, /\/api\/codex-hook/);
   assert.match(server, /normalizeHookState/);
   assert.match(server, /sessionState/);
-  assert.match(server, /pty\.spawn\(executable, args/);
-  assert.match(server, /isTerminalInterruptInput/);
+  assert.match(read("scripts/server/terminal-pty-runtime.js"), /pty\.spawn\(executable, args/);
+  assert.match(read("scripts/server/terminal-pty-runtime.js"), /isTerminalInterruptInput/);
   assert.match(read("scripts/server/terminal-runtime.js"), /text === "\\u001b" \|\| text\.includes\("\\u0003"\)/);
   assert.match(server, /parseWebSocketUpgradeRequest/);
   assert.match(read("scripts/server/websocket-upgrade.js"), /url\.pathname !== "\/bridge" && url\.pathname !== "\/terminal"/);
