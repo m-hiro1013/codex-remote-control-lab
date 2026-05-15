@@ -19,6 +19,7 @@ const { bridgeUrls, notifyBridgeUrls } = require("./phone-notify");
 const { isSessionBusy, mergeSessionState, normalizeHookState } = require("./session-state");
 const { findLiveBridge, liveThreadSummaries, readThreadSnapshot } = require("./thread-read");
 const { createCodexAppServerRuntime } = require("./server/codex-app-server-runtime");
+const { createHttpSurface } = require("./server/http-surface");
 const { createWorkspaceAccess } = require("./server/workspace-access");
 
 let pty = null;
@@ -141,6 +142,17 @@ const {
   env: process.env,
   hookEnvForToken: remoteHookEnv,
   root,
+});
+
+const {
+  readJsonBody,
+  requireToken,
+  sendJson,
+  serveStatic,
+} = createHttpSurface({
+  publicRoot: path.join(root, "public"),
+  staticMimeTypes,
+  tokenRequired,
 });
 
 function writeRemoteHookRuntime() {
@@ -275,47 +287,6 @@ function updateSessionState(statePatch) {
   return state;
 }
 
-function sendJson(res, status, body) {
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store",
-  });
-  res.end(JSON.stringify(body));
-}
-
-function readJsonBody(req, limit = 1_000_000) {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.setEncoding("utf8");
-    req.on("data", (chunk) => {
-      body += chunk;
-      if (body.length > limit) {
-        reject(new Error("request body too large"));
-        req.destroy();
-      }
-    });
-    req.on("end", () => {
-      if (!body) {
-        resolve({});
-        return;
-      }
-      try {
-        resolve(JSON.parse(body));
-      } catch (error) {
-        reject(error);
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
-function requireToken(url, phoneToken, res) {
-  if (!tokenRequired) return true;
-  if (url.searchParams.get("token") === phoneToken) return true;
-  sendJson(res, 401, { error: "invalid token" });
-  return false;
-}
-
 function sandboxPolicyForMode(mode, cwd = workdir) {
   if (mode === "danger-full-access") return { type: "dangerFullAccess" };
   if (mode === "read-only") return { type: "readOnly", networkAccess: true };
@@ -326,20 +297,6 @@ function sandboxPolicyForMode(mode, cwd = workdir) {
     excludeTmpdirEnvVar: false,
     excludeSlashTmp: false,
   };
-}
-
-function serveStatic(req, res) {
-  const requestPath = new URL(req.url, `http://${req.headers.host}`).pathname;
-  const file = requestPath === "/" ? "index.html" : requestPath.slice(1);
-  const target = path.join(root, "public", file);
-  if (!target.startsWith(path.join(root, "public")) || !fs.existsSync(target)) {
-    res.writeHead(404);
-    res.end("Not found");
-    return;
-  }
-  const type = staticMimeTypes.get(path.extname(target).toLowerCase()) || "application/octet-stream";
-  res.writeHead(200, { "content-type": `${type}; charset=utf-8`, "cache-control": "no-store" });
-  fs.createReadStream(target).pipe(res);
 }
 
 function stripUiDirectives(text) {
