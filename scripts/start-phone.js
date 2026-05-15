@@ -22,6 +22,13 @@ const { createApiRoutes } = require("./server/api-routes");
 const { createCodexAppServerRuntime } = require("./server/codex-app-server-runtime");
 const { createHttpSurface } = require("./server/http-surface");
 const { sandboxPolicyForMode } = require("./server/sandbox-policy");
+const {
+  broadcastSessionStateToTargets,
+  drainReadyBridgeQueues,
+  migrateBridgeThreadOwnership,
+  sessionStateFor: findSessionStateFor,
+  sessionStateKey,
+} = require("./server/session-ownership");
 const { parseWebSocketUpgradeRequest, writeUpgradeRejection } = require("./server/websocket-upgrade");
 const { createWorkspaceAccess } = require("./server/workspace-access");
 
@@ -253,78 +260,30 @@ function remoteHookEnv(phoneToken) {
   };
 }
 
-function stateKeyForSession(sessionId, cwd = "") {
-  if (sessionId) return `session:${sessionId}`;
-  return `cwd:${path.resolve(cwd || workdir)}`;
-}
-
 function sessionStateFor(threadId, cwd = "") {
-  const direct = sessionStates.get(stateKeyForSession(threadId, cwd));
-  if (direct) return direct;
-  if (!cwd) return null;
-  return sessionStates.get(stateKeyForSession("", cwd)) || null;
+  return findSessionStateFor({ sessionStates, threadId, cwd, defaultCwd: workdir });
 }
 
-function sessionStateMatches(state, threadId, cwd = "") {
-  if (!state) return false;
-  if (threadId && state.sessionId && state.sessionId === threadId) return true;
-  if (cwd && state.cwd && path.resolve(state.cwd) === path.resolve(cwd)) return true;
-  return false;
-}
-
-function broadcastSessionState(state) {
-  for (const bridge of bridges.values()) {
-    if (!sessionStateMatches(state, bridge.threadId || bridge.requestedThreadId, bridge.cwd)) continue;
-    bridge.noteActivity?.();
-    bridge.emit("sessionState", { state });
-  }
-  for (const session of terminalSessions.values()) {
-    if (!sessionStateMatches(state, session.threadId, session.cwd)) continue;
-    session.noteActivity?.();
-    session.broadcast({ type: "sessionState", state });
-  }
-}
-
-function migrateBridgeThreadOwnership(state) {
-  if (!state?.sessionId || !state?.cwd) return;
-  const directBridge = findLiveBridge(bridges, state.sessionId);
-  if (directBridge) {
-    const nextCwd = path.resolve(state.cwd);
-    if (path.resolve(directBridge.cwd || workdir) !== nextCwd) {
-      directBridge.cwd = nextCwd;
-      directBridge.updatedAt = Date.now();
-    }
-    return;
-  }
-  const sameCwdBridges = Array.from(bridges.values()).filter((bridge) => {
-    if (!bridge?.cwd) return false;
-    return path.resolve(bridge.cwd) === path.resolve(state.cwd);
+function migrateCurrentBridgeThreadOwnership(state) {
+  return migrateBridgeThreadOwnership({
+    state,
+    bridges,
+    threadAliases,
+    findLiveBridge,
+    defaultCwd: workdir,
   });
-  if (sameCwdBridges.length !== 1) return;
-  const [bridge] = sameCwdBridges;
-  if (!bridge) return;
-  if (bridge.threadId === state.sessionId) {
-    bridge.rehomeBridgeKey?.(state.sessionId);
-    return;
-  }
-  const previousThreadId = bridge.threadId;
-  bridge.threadId = state.sessionId;
-  bridge.rehomeBridgeKey?.(state.sessionId);
-  if (previousThreadId) threadAliases.set(previousThreadId, state.sessionId);
 }
 
 function updateSessionState(statePatch) {
-  const key = stateKeyForSession(statePatch.sessionId, statePatch.cwd);
+  const key = sessionStateKey({ sessionId: statePatch.sessionId, cwd: statePatch.cwd, defaultCwd: workdir });
   const previous = sessionStates.get(key);
   const state = mergeSessionState(previous, statePatch);
   sessionStates.set(key, state);
-  if (state.cwd) sessionStates.set(stateKeyForSession("", state.cwd), state);
-  migrateBridgeThreadOwnership(state);
-  broadcastSessionState(state);
+  if (state.cwd) sessionStates.set(sessionStateKey({ cwd: state.cwd, defaultCwd: workdir }), state);
+  migrateCurrentBridgeThreadOwnership(state);
+  broadcastSessionStateToTargets({ state, bridges, terminalSessions });
   if (!isSessionBusy(state)) {
-    for (const bridge of bridges.values()) {
-      if (sessionStateMatches(state, bridge.threadId || bridge.requestedThreadId, bridge.cwd)) bridge.startNextQueuedTurn?.();
-    }
+    drainReadyBridgeQueues({ state, bridges });
   }
   return state;
 }
