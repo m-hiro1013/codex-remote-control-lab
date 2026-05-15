@@ -20,6 +20,7 @@ const { isSessionBusy, mergeSessionState, normalizeHookState } = require("./sess
 const { findLiveBridge, liveThreadSummaries, readThreadSnapshot } = require("./thread-read");
 const { createApiRoutes } = require("./server/api-routes");
 const { createCodexAppServerRuntime } = require("./server/codex-app-server-runtime");
+const { approvalResponseFor, prepareTurnStart } = require("./server/bridge-turn");
 const { createHttpSurface } = require("./server/http-surface");
 const { sandboxPolicyForMode } = require("./server/sandbox-policy");
 const {
@@ -651,27 +652,17 @@ class SharedBridge {
   }
 
   startPrompt(text, attachments = [], options = {}) {
-    const input = [{ type: "text", text, text_elements: [] }];
-    const savedImages = [];
-    for (const attachment of attachments || []) {
-      const saved = saveDataUrlAttachment(attachment);
-      if (saved) {
-        input.push(saved.input);
-        savedImages.push(saved.preview);
-      }
-    }
-    const params = {
+    const { requestParams, displayText, savedImages } = prepareTurnStart({
       threadId: this.threadId,
-      input,
-    };
-    if (options.model) params.model = options.model;
-    if (options.approvalPolicy) params.approvalPolicy = options.approvalPolicy;
-    if (options.sandboxMode) params.sandboxPolicy = sandboxPolicyForMode(options.sandboxMode, this.cwd);
-    const id = this.request("turn/start", {
-      ...params,
+      text,
+      attachments,
+      options,
+      cwd: this.cwd,
+      saveDataUrlAttachment,
+      sandboxPolicyForMode,
     });
+    const id = this.request("turn/start", requestParams);
     this.pending.set(id, "turn/start");
-    const displayText = savedImages.length ? `${text}\n\n添付: ${savedImages.map((image) => image.name).join(", ")}` : text;
     this.appendHistory({ type: "user", text: displayText, attachments: savedImages });
     this.emit("user", { text: displayText, attachments: savedImages });
   }
@@ -684,18 +675,10 @@ class SharedBridge {
 
   approval(requestMsg, decision) {
     this.touchAccess();
-    if (!requestMsg || !requestMsg.id || !requestMsg.method) return;
-    const accept = decision === "accept";
-    let result;
-    if (requestMsg.method === "item/commandExecution/requestApproval") {
-      result = { decision: accept ? "accept" : "decline" };
-    } else if (requestMsg.method === "item/fileChange/requestApproval") {
-      result = { decision: accept ? "accept" : "decline" };
-    } else {
-      result = accept ? { decision: "accept" } : { decision: "decline" };
-    }
-    this.upstream.send(JSON.stringify({ id: requestMsg.id, result }));
-    this.emit("status", { text: accept ? "承認しました" : "拒否しました" });
+    const response = approvalResponseFor(requestMsg, decision);
+    if (!response) return;
+    this.upstream.send(JSON.stringify(response));
+    this.emit("status", { text: decision === "accept" ? "承認しました" : "拒否しました" });
   }
 }
 
