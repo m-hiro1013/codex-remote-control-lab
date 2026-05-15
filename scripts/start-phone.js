@@ -20,6 +20,7 @@ const { isSessionBusy, mergeSessionState, normalizeHookState } = require("./sess
 const { findLiveBridge, liveThreadSummaries, readThreadSnapshot } = require("./thread-read");
 const { createCodexAppServerRuntime } = require("./server/codex-app-server-runtime");
 const { createHttpSurface } = require("./server/http-surface");
+const { sandboxPolicyForMode } = require("./server/sandbox-policy");
 const { createWorkspaceAccess } = require("./server/workspace-access");
 
 let pty = null;
@@ -285,18 +286,6 @@ function updateSessionState(statePatch) {
     }
   }
   return state;
-}
-
-function sandboxPolicyForMode(mode, cwd = workdir) {
-  if (mode === "danger-full-access") return { type: "dangerFullAccess" };
-  if (mode === "read-only") return { type: "readOnly", networkAccess: true };
-  return {
-    type: "workspaceWrite",
-    writableRoots: [cwd],
-    networkAccess: true,
-    excludeTmpdirEnvVar: false,
-    excludeSlashTmp: false,
-  };
 }
 
 function stripUiDirectives(text) {
