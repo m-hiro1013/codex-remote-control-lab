@@ -29,6 +29,7 @@ const {
   sessionStateFor: findSessionStateFor,
   sessionStateKey,
 } = require("./server/session-ownership");
+const { isTerminalInterruptInput, terminalCodexArgs, terminalKeyFor } = require("./server/terminal-runtime");
 const { parseWebSocketUpgradeRequest, writeUpgradeRejection } = require("./server/websocket-upgrade");
 const { createWorkspaceAccess } = require("./server/workspace-access");
 
@@ -759,10 +760,6 @@ function bindBrowser(browser, phoneToken, threadId, options = {}) {
   });
 }
 
-function terminalKeyFor(threadId, cwd) {
-  return `${threadId || "new"}:${path.resolve(cwd || workdir)}`;
-}
-
 function resolveThreadAlias(threadId) {
   let current = threadId;
   const visited = new Set();
@@ -774,19 +771,6 @@ function resolveThreadAlias(threadId) {
   if (findLiveBridge(bridges, current)) return current;
   threadAliases.delete(threadId);
   return threadId;
-}
-
-function terminalCodexArgs(threadId, cwd) {
-  const args = ["resume"];
-  if (!codexSocketPath && codexUrl) args.push("--remote", codexUrl);
-  args.push("-C", cwd);
-  args.push(threadId);
-  return args;
-}
-
-function isTerminalInterruptInput(data) {
-  const text = String(data || "");
-  return text === "\u001b" || text.includes("\u0003");
 }
 
 class TerminalPtySession {
@@ -808,7 +792,7 @@ class TerminalPtySession {
     if (!pty) throw new Error("node-pty is not available. Run npm install before using terminal mode.");
     if (!this.threadId) throw new Error("thread is required for Codex terminal resume");
     const executable = codexTerminalBin;
-    const args = terminalCodexArgs(this.threadId, this.cwd);
+    const args = terminalCodexArgs({ threadId: this.threadId, cwd: this.cwd, codexSocketPath, codexUrl });
     const proc = pty.spawn(executable, args, {
       cwd: this.cwd,
       cols: Math.max(20, Number(cols) || 100),
@@ -828,7 +812,7 @@ class TerminalPtySession {
     proc.onExit(({ exitCode, signal }) => {
       this.closed = true;
       this.broadcast({ type: "exit", code: exitCode, signal });
-      terminalSessions.delete(terminalKeyFor(this.threadId, this.cwd));
+      terminalSessions.delete(terminalKeyFor(this.threadId, this.cwd, workdir));
     });
     return proc;
   }
@@ -932,12 +916,12 @@ class TerminalPtySession {
     try {
       this.proc.kill("SIGTERM");
     } catch {}
-    terminalSessions.delete(terminalKeyFor(this.threadId, this.cwd));
+    terminalSessions.delete(terminalKeyFor(this.threadId, this.cwd, workdir));
   }
 }
 
 function getTerminalSession({ threadId, cwd, cols, rows }) {
-  const key = terminalKeyFor(threadId, cwd);
+  const key = terminalKeyFor(threadId, cwd, workdir);
   const existing = terminalSessions.get(key);
   if (existing && !existing.closed) return existing;
   const session = new TerminalPtySession({ threadId, cwd, cols, rows });

@@ -195,8 +195,8 @@ test("phone bridge exposes a PTY terminal websocket instead of smart-cli iframe 
   assert.match(server, /normalizeHookState/);
   assert.match(server, /sessionState/);
   assert.match(server, /pty\.spawn\(executable, args/);
-  assert.match(server, /function isTerminalInterruptInput\(data\)/);
-  assert.match(server, /text === "\\u001b" \|\| text\.includes\("\\u0003"\)/);
+  assert.match(server, /isTerminalInterruptInput/);
+  assert.match(read("scripts/server/terminal-runtime.js"), /text === "\\u001b" \|\| text\.includes\("\\u0003"\)/);
   assert.match(server, /parseWebSocketUpgradeRequest/);
   assert.match(read("scripts/server/websocket-upgrade.js"), /url\.pathname !== "\/bridge" && url\.pathname !== "\/terminal"/);
   assert.match(server, /bindTerminalSocket/);
