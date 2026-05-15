@@ -309,14 +309,11 @@ test("build output includes the xterm bundle assets", () => {
   assert.match(read("public/terminal-client.css"), /\.xterm/);
 });
 
-test("project hooks publish Codex lifecycle state to the remote-control bridge", () => {
-  const hooks = read(".codex/hooks.json");
+test("Codex lifecycle hook script can publish state without inherited hook env", () => {
   const hookScript = read("scripts/codex-remote-control-state-hook.js");
-  assert.match(hooks, /"UserPromptSubmit"/);
-  assert.match(hooks, /"PermissionRequest"/);
-  assert.match(hooks, /"Stop"/);
-  assert.match(hooks, /scripts\/codex-remote-control-state-hook\.js/);
   assert.match(hookScript, /CODEX_REMOTE_HOOK_URL/);
+  assert.match(hookScript, /remote-control-hook-runtime\.json/);
+  assert.match(hookScript, /\.phone-token/);
   assert.match(hookScript, /x-codex-remote-hook-token/);
   assert.match(hookScript, /hook_event_name === "Stop"/);
 });

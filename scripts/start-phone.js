@@ -77,6 +77,7 @@ const listenHost = tokenRequired || debugLan ? "0.0.0.0" : "127.0.0.1";
 const tokenPath = path.join(root, ".phone-token");
 const uploadDir = path.join(root, ".uploads");
 const bridges = new Map();
+const threadAliases = new Map();
 const terminalSessions = new Map();
 const sessionStates = new Map();
 const retainedSessionConfig = retentionConfigFromEnv(process.env);
@@ -98,6 +99,19 @@ const staticMimeTypes = new Map([
   [".svg", "image/svg+xml"],
   [".webmanifest", "application/manifest+json"],
 ]);
+
+function writeRemoteHookRuntime() {
+  // debug/no-token bridge はテストや一時確認用なので、global hook の正本を書き換えない。
+  if (!tokenRequired) return;
+  const filePath = path.join(root, ".logs", "remote-control-hook-runtime.json");
+  const data = {
+    url: remoteHookUrl(),
+    uiPort,
+    updatedAt: new Date().toISOString(),
+  };
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+}
 
 function createIdleRetentionTimer(callback) {
   const timer = setTimeout(callback, retainedSessionConfig.idleTtlMs);
@@ -165,6 +179,7 @@ function remoteHookUrl() {
 
 function remoteHookEnv(phoneToken) {
   return {
+    CODEX_REMOTE_CONTROL_LAB_ROOT: root,
     CODEX_REMOTE_HOOK_URL: remoteHookUrl(),
     CODEX_REMOTE_HOOK_TOKEN: phoneToken || "",
   };
@@ -202,12 +217,41 @@ function broadcastSessionState(state) {
   }
 }
 
+function migrateBridgeThreadOwnership(state) {
+  if (!state?.sessionId || !state?.cwd) return;
+  const directBridge = findLiveBridge(bridges, state.sessionId);
+  if (directBridge) {
+    const nextCwd = path.resolve(state.cwd);
+    if (path.resolve(directBridge.cwd || workdir) !== nextCwd) {
+      directBridge.cwd = nextCwd;
+      directBridge.updatedAt = Date.now();
+    }
+    return;
+  }
+  const sameCwdBridges = Array.from(bridges.values()).filter((bridge) => {
+    if (!bridge?.cwd) return false;
+    return path.resolve(bridge.cwd) === path.resolve(state.cwd);
+  });
+  if (sameCwdBridges.length !== 1) return;
+  const [bridge] = sameCwdBridges;
+  if (!bridge) return;
+  if (bridge.threadId === state.sessionId) {
+    bridge.rehomeBridgeKey?.(state.sessionId);
+    return;
+  }
+  const previousThreadId = bridge.threadId;
+  bridge.threadId = state.sessionId;
+  bridge.rehomeBridgeKey?.(state.sessionId);
+  if (previousThreadId) threadAliases.set(previousThreadId, state.sessionId);
+}
+
 function updateSessionState(statePatch) {
   const key = stateKeyForSession(statePatch.sessionId, statePatch.cwd);
   const previous = sessionStates.get(key);
   const state = mergeSessionState(previous, statePatch);
   sessionStates.set(key, state);
   if (state.cwd) sessionStates.set(stateKeyForSession("", state.cwd), state);
+  migrateBridgeThreadOwnership(state);
   broadcastSessionState(state);
   if (!isSessionBusy(state)) {
     for (const bridge of bridges.values()) {
@@ -1021,10 +1065,15 @@ class SharedBridge {
 
   promoteBridgeKey() {
     if (!shouldPromoteBridgeKey({ bridgeKey: this.bridgeKey, threadId: this.threadId })) return;
+    this.rehomeBridgeKey(this.threadId);
+  }
+
+  rehomeBridgeKey(nextKey) {
+    if (!nextKey || this.bridgeKey === nextKey) return;
     const previousKey = this.bridgeKey;
-    if (bridges.has(this.threadId) && bridges.get(this.threadId) !== this) return;
+    if (bridges.has(nextKey) && bridges.get(nextKey) !== this) return;
     if (bridges.get(previousKey) !== this) return;
-    this.bridgeKey = this.threadId;
+    this.bridgeKey = nextKey;
     bridges.delete(previousKey);
     bridges.set(this.bridgeKey, this);
   }
@@ -1276,13 +1325,16 @@ class SharedBridge {
 }
 
 function getBridge(threadId, connectionId = crypto.randomUUID(), options = {}) {
+  const canonicalThreadId = resolveThreadAlias(threadId);
   if (!threadId && !options.forceNew) {
     for (const bridge of bridges.values()) {
       if (!bridge.requestedThreadId) return bridge;
     }
   }
-  const key = options.forceNew && !threadId ? `new:${connectionId}` : bridgeKeyForRequest(threadId, connectionId);
-  if (!bridges.has(key)) bridges.set(key, new SharedBridge(threadId, key, { cwd: options.cwd || workdir }));
+  const existing = findLiveBridge(bridges, canonicalThreadId);
+  if (existing) return existing;
+  const key = options.forceNew && !canonicalThreadId ? `new:${connectionId}` : bridgeKeyForRequest(canonicalThreadId, connectionId);
+  if (!bridges.has(key)) bridges.set(key, new SharedBridge(canonicalThreadId, key, { cwd: options.cwd || workdir }));
   pruneIdleRetainedSessions(bridges, (bridge) => bridge.dispose());
   return bridges.get(key);
 }
@@ -1305,6 +1357,19 @@ function bindBrowser(browser, phoneToken, threadId, options = {}) {
 
 function terminalKeyFor(threadId, cwd) {
   return `${threadId || "new"}:${path.resolve(cwd || workdir)}`;
+}
+
+function resolveThreadAlias(threadId) {
+  let current = threadId;
+  const visited = new Set();
+  while (current && threadAliases.has(current) && !visited.has(current)) {
+    visited.add(current);
+    current = threadAliases.get(current);
+  }
+  if (!current || current === threadId) return threadId;
+  if (findLiveBridge(bridges, current)) return current;
+  threadAliases.delete(threadId);
+  return threadId;
 }
 
 function terminalCodexArgs(threadId, cwd) {
@@ -1497,6 +1562,7 @@ async function main() {
   const phoneToken = tokenRequired ? getToken() : "";
   process.env.CODEX_REMOTE_HOOK_URL = remoteHookUrl();
   process.env.CODEX_REMOTE_HOOK_TOKEN = phoneToken;
+  writeRemoteHookRuntime();
   const codex = shouldStartCodexServer ? startCodexServer(phoneToken) : null;
   if (shouldStartCodexServer) {
     await waitForReady();

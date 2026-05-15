@@ -460,6 +460,12 @@ function displayPath(value) {
   return text === home ? "~" : `~${text.slice(home.length)}`;
 }
 
+function comparableSessionPath(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text === "/" ? "/" : text.replace(/\/+$/, "");
+}
+
 function defaultDeveloperPath() {
   const candidates = [sessionCreateCwd, sessionBrowserCurrentPath, currentWorkdir, ...cwdHistory].filter(Boolean);
   for (const candidate of candidates) {
@@ -495,15 +501,23 @@ function syncOpenSessionsFromThreads() {
   const previousActive =
     openSessions.find((session) => session.key === activeSessionKey && session.threadId) || resumeCandidateSession || readResumeSession();
   const known = new Map(openSessions.map((item) => [item.threadId, item]));
+  let currentWorkdirChanged = false;
   for (const thread of threadCache) {
     if (!thread.id) continue;
     if (closedThreadIds.has(thread.id) && thread.id !== selectedThread) continue;
     const existing = known.get(thread.id);
     if (existing) {
+      const previousKey = existing.key;
       existing.cwd = thread.cwd || existing.cwd;
+      existing.key = sessionKeyFor(existing.threadId, existing.cwd);
+      if (activeSessionKey === previousKey) activeSessionKey = existing.key;
       existing.title = titleForThread(thread);
       existing.status = thread.status || thread.sessionState?.status || existing.status || "ready";
       existing.updatedAt = thread.updatedAt || thread.createdAt || Date.now();
+      if (thread.id === selectedThread && thread.cwd && currentWorkdir !== thread.cwd) {
+        currentWorkdir = thread.cwd;
+        currentWorkdirChanged = true;
+      }
       continue;
     }
     openSessions.push(
@@ -521,12 +535,42 @@ function syncOpenSessionsFromThreads() {
     .sort((a, b) => a.updatedAt - b.updatedAt);
   if (previousActive?.threadId && !liveIds.has(previousActive.threadId)) persistResumeSession(previousActive);
   if (selectedThread && !liveIds.has(selectedThread)) {
-    persistResumeSession({
-      threadId: selectedThread,
-      cwd: currentWorkdir || previousActive?.cwd || resumeCandidateSession?.cwd || "",
-      title: previousActive?.title || selectedThread,
-      status: "resume_pending",
+    const migrationCwd = currentWorkdir || previousActive?.cwd || resumeCandidateSession?.cwd || "";
+    const migratedThreads = threadCache.filter((thread) => {
+      if (!thread?.id || !thread?.cwd) return false;
+      return comparableSessionPath(thread.cwd) === comparableSessionPath(migrationCwd);
     });
+    if (migratedThreads.length === 1) {
+      selectedThread = migratedThreads[0].id;
+      const migratedSession = openSessions.find((session) => session.threadId === selectedThread);
+      if (migratedSession) activeSessionKey = migratedSession.key;
+      if (migratedThreads[0].cwd && currentWorkdir !== migratedThreads[0].cwd) {
+        currentWorkdir = migratedThreads[0].cwd;
+        currentWorkdirChanged = true;
+      }
+      persistResumeSession(
+        migratedSession || {
+          threadId: selectedThread,
+          cwd: migratedThreads[0].cwd || migrationCwd,
+          title: titleForThread(migratedThreads[0]),
+          status: migratedThreads[0].status || migratedThreads[0].sessionState?.status || "ready",
+        },
+      );
+      updateUrlThread();
+      threadTitle.textContent = titleForThread(migratedThreads[0]);
+      syncTerminalSessionMeta();
+    } else {
+      persistResumeSession({
+        threadId: selectedThread,
+        cwd: migrationCwd,
+        title: previousActive?.title || selectedThread,
+        status: "resume_pending",
+      });
+    }
+  }
+  if (currentWorkdirChanged) {
+    syncHeaderCwd();
+    syncTerminalSessionMeta();
   }
   if (!activeSessionKey && openSessions.length) activeSessionKey = openSessions[0].key;
   if (
