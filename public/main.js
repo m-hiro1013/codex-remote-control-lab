@@ -144,9 +144,19 @@ function shouldAutoScrollLog() {
   return distanceFromBottom <= logAutoScrollThresholdPx;
 }
 
+function forceScrollLogToBottom() {
+  if (!log) return;
+  log.scrollTop = log.scrollHeight;
+}
+
 function scrollLogToBottomIfNeeded(shouldScroll = shouldAutoScrollLog()) {
   if (!shouldScroll || !log) return;
-  log.scrollTop = log.scrollHeight;
+  forceScrollLogToBottom();
+}
+
+function queueHistoryScrollToBottom() {
+  forceScrollLogToBottom();
+  requestAnimationFrame(() => requestAnimationFrame(() => forceScrollLogToBottom()));
 }
 
 const themeOptions = [
@@ -1366,6 +1376,7 @@ function renderHistory(history) {
   log.replaceChildren();
   statusGroup = null;
   for (const entry of history || []) addEntry(entry.type, entry.text, entry.attachments || []);
+  queueHistoryScrollToBottom();
 }
 
 function historySignature(history = []) {

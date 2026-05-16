@@ -30,3 +30,14 @@ test("chat stream only auto-scrolls when the log is already near the bottom", ()
     /if \(msg\.type === "assistantDelta"\) \{[\s\S]*const shouldStickToBottom = shouldAutoScrollLog\(\);[\s\S]*setEntryText\(assistantEntry, "assistant"[\s\S]*scrollLogToBottomIfNeeded\(shouldStickToBottom\);/,
   );
 });
+
+test("chat history restore forces bottom after layout settles", () => {
+  const main = read("public/main.js");
+
+  assert.match(main, /function forceScrollLogToBottom\(\)/);
+  assert.match(main, /requestAnimationFrame\(\(\) => requestAnimationFrame\(\(\) => forceScrollLogToBottom\(\)\)\)/);
+  assert.match(
+    main,
+    /function renderHistory\(history\) \{[\s\S]*for \(const entry of history \|\| \[\]\) addEntry\(entry\.type, entry\.text, entry\.attachments \|\| \[\]\);[\s\S]*queueHistoryScrollToBottom\(\);/,
+  );
+});

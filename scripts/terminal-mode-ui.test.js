@@ -230,6 +230,12 @@ test("terminal client bundles xterm and forwards raw terminal input", () => {
   assert.match(client, /longPressMs = 300/);
 });
 
+test("terminal snapshot restore scrolls to bottom after write", () => {
+  const client = read("src/ui/terminal-client.js");
+  assert.match(client, /scrollTerminalToBottom\(\)/);
+  assert.match(client, /this\.term\?\.write\(msg\.data, \(\) => this\.scrollTerminalToBottom\(\)\)/);
+});
+
 test("terminal mode is hidden until selected and uses native terminal viewport", () => {
   const css = read("public/style.css");
   assert.match(css, /\.mode-stage \{/);

@@ -9326,6 +9326,11 @@ ${cwd || ""}`;
           } catch {
           }
         }
+        scrollTerminalToBottom() {
+          if (!this.term) return;
+          this.term.scrollToBottom();
+          requestAnimationFrame(() => this.term?.scrollToBottom());
+        }
         handleMessage(raw) {
           let msg;
           try {
@@ -9341,7 +9346,7 @@ ${cwd || ""}`;
           if (msg.type === "snapshot" && typeof msg.data === "string") {
             this.hideFallback();
             this.term?.reset();
-            this.term?.write(msg.data);
+            this.term?.write(msg.data, () => this.scrollTerminalToBottom());
             return;
           }
           if (msg.type === "status" && msg.text) {
