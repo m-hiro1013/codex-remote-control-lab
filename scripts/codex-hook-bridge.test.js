@@ -75,6 +75,57 @@ function startFakeAppServer() {
   });
 }
 
+function startStrictThreadBindingAppServer() {
+  const server = http.createServer();
+  const wss = new WebSocket.Server({ server });
+  const records = [];
+  wss.on("connection", (ws) => {
+    ws.loadedThreads = new Set();
+    ws.on("message", (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.method) records.push({ method: msg.method, params: msg.params });
+      if (!msg.id) return;
+      if (msg.method === "thread/start") {
+        ws.loadedThreads.add("thread-hook");
+        ws.send(JSON.stringify({ id: msg.id, result: { thread: { id: "thread-hook", turns: [] } } }));
+        return;
+      }
+      if (msg.method === "thread/resume") {
+        ws.loadedThreads.add(msg.params.threadId);
+        ws.send(JSON.stringify({ id: msg.id, result: { thread: { id: msg.params.threadId, turns: [] } } }));
+        return;
+      }
+      if (msg.method === "turn/start") {
+        if (!ws.loadedThreads.has(msg.params.threadId)) {
+          ws.send(
+            JSON.stringify({
+              id: msg.id,
+              error: { code: -32000, message: `thread ${msg.params.threadId} not loaded on this connection` },
+            }),
+          );
+          return;
+        }
+        ws.send(JSON.stringify({ id: msg.id, result: { turn: { id: `turn-${msg.params.threadId}` } } }));
+        return;
+      }
+      if (msg.method === "thread/list" || msg.method === "thread/loaded/list" || msg.method === "model/list") {
+        ws.send(JSON.stringify({ id: msg.id, result: { data: [] } }));
+        return;
+      }
+      ws.send(JSON.stringify({ id: msg.id, result: {} }));
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      resolve({
+        url: `ws://127.0.0.1:${server.address().port}`,
+        records,
+        close: () => new Promise((done) => server.close(done)),
+      });
+    });
+  });
+}
+
 function postJson(port, body) {
   const data = Buffer.from(JSON.stringify(body));
   return new Promise((resolve, reject) => {
@@ -271,6 +322,85 @@ test("terminal resume hook should migrate the canonical live thread id for the s
       "thread-resumed",
       "terminal resume 後は hook で観測した新 thread id が live-threads の canonical id に昇格してほしい",
     );
+  } finally {
+    if (ws) ws.close();
+    child.kill("SIGTERM");
+    await fakeApp.close();
+  }
+});
+
+test("terminal resume migration resumes upstream before accepting chat prompt", { timeout: 15000 }, async () => {
+  const fakeApp = await startStrictThreadBindingAppServer();
+  const uiPort = await freePort();
+  const child = spawn(process.execPath, ["scripts/start-phone.js"], {
+    cwd: root,
+    env: {
+      ...process.env,
+      PHONE_UI_PORT: String(uiPort),
+      PHONE_DEBUG_NO_TOKEN: "1",
+      CODEX_APP_SERVER_URL: fakeApp.url,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let ws;
+  try {
+    await waitForText(child.stdout, /Codex shared browser bridge is ready\./);
+    ws = new WebSocket(`ws://127.0.0.1:${uiPort}/bridge`);
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("bridge ready timeout")), 8000);
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === "ready" && msg.threadId === "thread-hook") {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+      ws.on("error", reject);
+    });
+
+    const resumedStatePromise = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("resumed state timeout")), 8000);
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === "sessionState" && msg.state?.sessionId === "thread-resumed") {
+          clearTimeout(timer);
+          resolve(msg.state);
+        }
+      });
+    });
+
+    const hookResponse = await postJson(uiPort, {
+      hook_event_name: "Stop",
+      session_id: "thread-resumed",
+      turn_id: "turn-resumed",
+      cwd: root,
+    });
+    assert.equal(hookResponse.statusCode, 200);
+    await resumedStatePromise;
+
+    const turnStartedPromise = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("turn start timeout")), 8000);
+      ws.on("message", (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === "error") {
+          clearTimeout(timer);
+          reject(new Error(msg.text));
+        }
+        if (msg.type === "turn" && msg.status === "started") {
+          clearTimeout(timer);
+          resolve(msg.turnId);
+        }
+      });
+    });
+    ws.send(JSON.stringify({ type: "prompt", text: "after migration" }));
+    assert.equal(await turnStartedPromise, "turn-thread-resumed");
+
+    const bridgeMethods = fakeApp.records.map((record) => record.method).filter(Boolean);
+    const resumedIndex = bridgeMethods.findIndex((method, index) => method === "thread/resume" && index > bridgeMethods.indexOf("thread/start"));
+    const turnIndex = bridgeMethods.findIndex((method) => method === "turn/start");
+    assert.notEqual(resumedIndex, -1, "terminal resume 後の chat prompt 前に upstream thread/resume が必要");
+    assert.ok(resumedIndex < turnIndex, "thread/resume は turn/start より先に送る");
   } finally {
     if (ws) ws.close();
     child.kill("SIGTERM");
@@ -480,6 +610,72 @@ test("browser migrates resume candidate to the canonical thread after terminal r
     );
     assert.equal(storageState.resumeCandidateSession?.cwd, root);
   } finally {
+    if (browser) await browser.close();
+    child.kill("SIGTERM");
+    await fakeApp.close();
+  }
+});
+
+test("browser persists canonical resumed thread before live thread refresh finishes", { timeout: 20000 }, async () => {
+  const fakeApp = await startFakeAppServer();
+  const uiPort = await freePort();
+  const child = spawn(process.execPath, ["scripts/start-phone.js"], {
+    cwd: root,
+    env: {
+      ...process.env,
+      PHONE_UI_PORT: String(uiPort),
+      PHONE_DEBUG_NO_TOKEN: "1",
+      CODEX_APP_SERVER_URL: fakeApp.url,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let browser;
+  let delayLiveThreads = false;
+  let releaseLiveThreads = null;
+  try {
+    await waitForText(child.stdout, /Codex shared browser bridge is ready\./);
+    browser = await chromium.launch();
+    const page = await browser.newPage({ viewport: { width: 1280, height: 760 } });
+    await page.route(`http://127.0.0.1:${uiPort}/api/live-threads`, async (route) => {
+      if (delayLiveThreads) await new Promise((resolve) => (releaseLiveThreads = resolve));
+      await route.continue();
+    });
+    await page.goto(`http://127.0.0.1:${uiPort}`);
+    await page.waitForFunction(() => window.location.search.includes("thread=thread-hook"));
+
+    delayLiveThreads = true;
+    const hookResponse = await postJson(uiPort, {
+      hook_event_name: "Stop",
+      session_id: "thread-resumed",
+      turn_id: "turn-resumed",
+      cwd: root,
+    });
+    assert.equal(hookResponse.statusCode, 200);
+
+    await page.waitForFunction(() => window.location.search.includes("thread=thread-resumed"));
+    const storageState = await page.evaluate(() => {
+      function readJson(key) {
+        try {
+          return JSON.parse(localStorage.getItem(key) || "null");
+        } catch {
+          return null;
+        }
+      }
+      return {
+        search: window.location.search,
+        openSessions: readJson("codexRemoteOpenSessions"),
+        activeSessionKey: localStorage.getItem("codexRemoteLastActiveSessionKey"),
+        resumeCandidateSession: readJson("codexRemoteResumeSession"),
+      };
+    });
+
+    assert.match(storageState.search, /thread=thread-resumed/);
+    assert.deepEqual(storageState.openSessions.map((session) => session.threadId), ["thread-resumed"]);
+    assert.equal(storageState.activeSessionKey, `thread-resumed::${root}`);
+    assert.equal(storageState.resumeCandidateSession?.threadId, "thread-resumed");
+  } finally {
+    releaseLiveThreads?.();
     if (browser) await browser.close();
     child.kill("SIGTERM");
     await fakeApp.close();

@@ -3,6 +3,7 @@ const fs = require("fs");
 const http = require("http");
 const os = require("os");
 const path = require("path");
+const { execFileSync } = require("child_process");
 const WebSocket = require("ws");
 const {
   appServerArgs,
@@ -97,7 +98,9 @@ const debugBind = (process.env.PHONE_DEBUG_BIND || "").trim().toLowerCase();
 const debugLan = debugNoToken && debugBind === "lan";
 const authMode = debugNoToken ? "debug-no-token" : "token";
 const tokenRequired = authMode === "token";
-const listenHost = tokenRequired || debugLan ? "0.0.0.0" : "127.0.0.1";
+const configuredListenHost = (process.env.PHONE_UI_HOST || "").trim();
+// Tailscale 専用で常駐させる時だけ、全 interface 公開を避けて bind 先を固定できるようにする。
+const listenHost = configuredListenHost || (tokenRequired || debugLan ? "0.0.0.0" : "127.0.0.1");
 const tokenPath = path.join(root, ".phone-token");
 const uploadDir = path.join(root, ".uploads");
 const bridges = new Map();
@@ -274,10 +277,19 @@ function getToken() {
 }
 
 function lanAddresses() {
-  return Object.values(os.networkInterfaces())
+  const addresses = Object.values(os.networkInterfaces())
     .flat()
     .filter((entry) => entry && (entry.family === "IPv4" || entry.family === 4) && !entry.internal)
     .map((entry) => entry.address);
+
+  try {
+    const tailscaleIp = execFileSync("/usr/local/bin/tailscale", ["ip", "-4"], { encoding: "utf8", timeout: 1500 }).trim();
+    if (tailscaleIp && !addresses.includes(tailscaleIp)) addresses.push(tailscaleIp);
+  } catch {
+    // Tailscale CLI が一時的に読めない場合でも LAN URL 表示は継続する。
+  }
+
+  return addresses;
 }
 
 function remoteHookUrl() {

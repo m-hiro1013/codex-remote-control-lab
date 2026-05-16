@@ -242,8 +242,35 @@ function setRunState(state, label) {
   runStateLabel.textContent = nextLabel;
 }
 
+function adoptCanonicalSessionState(state) {
+  if (!state?.sessionId || !state?.cwd) return;
+  const active = openSessions.find((session) => session.key === activeSessionKey);
+  const currentCwd = currentWorkdir || active?.cwd || resumeCandidateSession?.cwd || "";
+  const sameThread = selectedThread === state.sessionId;
+  if (!sameThread && (!currentCwd || comparableSessionPath(currentCwd) !== comparableSessionPath(state.cwd))) return;
+  openSessions = openSessions.filter((session) => {
+    if (!session?.threadId || !session.cwd) return true;
+    const sameSessionCwd = comparableSessionPath(session.cwd) === comparableSessionPath(state.cwd);
+    if (session.threadId === state.sessionId) return sameSessionCwd;
+    return !sameSessionCwd;
+  });
+  selectedThread = state.sessionId;
+  currentWorkdir = state.cwd;
+  const session = addOrUpdateOpenSession({
+    threadId: state.sessionId,
+    cwd: state.cwd,
+    title: basenameForPath(state.cwd) || state.sessionId,
+    status: state.status || "input_ready",
+  });
+  activeSessionKey = session?.key || activeSessionKey;
+  updateUrlThread();
+  syncHeaderCwd();
+  syncTerminalSessionMeta();
+}
+
 function applyRemoteSessionState(state) {
   if (!state || typeof state !== "object") return;
+  adoptCanonicalSessionState(state);
   remoteSessionState = state;
   if (activeSessionKey) {
     const active = openSessions.find((session) => session.key === activeSessionKey);
@@ -2680,16 +2707,19 @@ function connect() {
   nextThreadCwd = "";
   const bridgeQuery = query.toString();
   ws = new WebSocket(`${proto}//${location.host}/bridge${bridgeQuery ? `?${bridgeQuery}` : ""}`);
+  const socket = ws;
   connectButton.disabled = true;
   meta.textContent = "接続中";
   syncHeaderCwd();
 
   ws.addEventListener("open", () => {
+    if (socket !== ws) return;
     setRunState("connecting", "Codex に接続中");
     addEntry("status", "Macの共有ブリッジへ接続しました。");
   });
 
   ws.addEventListener("message", (event) => {
+    if (socket !== ws) return;
     const msg = JSON.parse(event.data);
     if (msg.type === "ready") {
       setReady(true);
@@ -2754,6 +2784,7 @@ function connect() {
   });
 
   ws.addEventListener("close", () => {
+    if (socket !== ws) return;
     setReady(false);
     connectButton.disabled = false;
     meta.textContent = "切断";

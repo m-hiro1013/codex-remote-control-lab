@@ -99,6 +99,7 @@ test("SharedBridge sends prompt turns and records running state", () => {
   const bridge = new SharedBridge(null, "new:two");
   bridges.set("new:two", bridge);
   bridge.threadId = "thread-2";
+  bridge.upstreamThreadId = "thread-2";
   bridge.ready = true;
 
   bridge.prompt("hello");
@@ -120,6 +121,39 @@ test("SharedBridge sends prompt turns and records running state", () => {
     cwd: "/repo",
     event: "turn/start",
     updatedAt: stateUpdates.at(-1).updatedAt,
+  });
+});
+
+test("SharedBridge resumes adopted thread before queued prompt", () => {
+  const { bridges, SharedBridge, upstream } = createBridgeHarness();
+  const bridge = new SharedBridge(null, "thread-old");
+  bridges.set("thread-old", bridge);
+  bridge.threadId = "thread-old";
+  bridge.upstreamThreadId = "thread-old";
+  bridge.ready = true;
+
+  bridge.resumeThread("thread-new", { cwd: "/repo" });
+  bridge.prompt("after resume");
+
+  assert.deepEqual(upstream.sent.at(-1), {
+    id: 1,
+    method: "thread/resume",
+    params: {
+      threadId: "thread-new",
+      model: "gpt-test",
+      cwd: "/repo",
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+    },
+  });
+  assert.equal(upstream.sent.some((message) => message.method === "turn/start"), false);
+
+  upstream.emit("message", Buffer.from(JSON.stringify({ id: 1, result: { thread: { id: "thread-new", turns: [] } } })));
+
+  assert.deepEqual(upstream.sent.at(-1), {
+    id: 2,
+    method: "turn/start",
+    params: { threadId: "thread-new", input: [{ type: "text", text: "after resume", text_elements: [] }] },
   });
 });
 

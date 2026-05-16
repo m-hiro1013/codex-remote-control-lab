@@ -331,3 +331,9 @@ test("browser recovers from stale no-rollout thread ids", () => {
   assert.match(main, /if \(recoverMissingSelectedThread\(message\)\) return;/);
   assert.match(main, /if \(recoverMissingSelectedThread\(msg\.text\)\) return;/);
 });
+
+test("browser ignores stale websocket events after reconnect", () => {
+  const main = read("public/main.js");
+  assert.match(main, /const socket = ws;/);
+  assert.match(main, /if \(socket !== ws\) return;/);
+});

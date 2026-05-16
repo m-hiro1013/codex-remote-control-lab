@@ -35,7 +35,9 @@ function createSharedBridgeClass(deps) {
       this.clients = new Set();
       this.nextId = 1;
       this.pending = new Map();
+      this.pendingThreadBindings = new Map();
       this.threadId = null;
+      this.upstreamThreadId = null;
       this.activeTurnId = null;
       this.ready = false;
       this.startupFailed = false;
@@ -139,6 +141,17 @@ function createSharedBridgeClass(deps) {
       return Array.from(this.pending.values()).includes("turn/start");
     }
 
+    hasPendingThreadBinding() {
+      return Array.from(this.pending.values()).some((method) => method === "thread/start" || method === "thread/resume");
+    }
+
+    hasPendingThreadResume(threadId) {
+      for (const [id, method] of this.pending.entries()) {
+        if (method === "thread/resume" && this.pendingThreadBindings.get(id) === threadId) return true;
+      }
+      return false;
+    }
+
     promoteBridgeKey() {
       if (!shouldPromoteBridgeKey({ bridgeKey: this.bridgeKey, threadId: this.threadId })) return;
       this.rehomeBridgeKey(this.threadId);
@@ -177,6 +190,7 @@ function createSharedBridgeClass(deps) {
             };
         const id = this.request(method, params);
         this.pending.set(id, method);
+        this.pendingThreadBindings.set(id, this.requestedThreadId || null);
         this.emit("status", { text: this.requestedThreadId ? "既存threadを再開中..." : "新しいthreadを開始中..." });
       });
 
@@ -187,12 +201,14 @@ function createSharedBridgeClass(deps) {
 
         if (pendingMethod === "thread/start" || pendingMethod === "thread/resume") {
           this.pending.delete(msg.id);
+          this.pendingThreadBindings.delete(msg.id);
           if (msg.error) {
             this.startupFailed = true;
             this.emit("error", { text: msg.error.message || JSON.stringify(msg.error) });
             return;
           }
           this.threadId = msg.result.thread.id;
+          this.upstreamThreadId = this.threadId;
           this.startupFailed = false;
           this.promoteBridgeKey();
           this.ready = true;
@@ -201,6 +217,7 @@ function createSharedBridgeClass(deps) {
           this.materialized = this.materialized || this.history.length > 0;
           this.emit("ready", this.readyPayload());
           if (this.requestedThreadId) this.emit("status", { text: `既存threadを再開しました: ${this.threadId}` });
+          this.startNextQueuedTurn();
           return;
         }
 
@@ -312,7 +329,13 @@ function createSharedBridgeClass(deps) {
         this.emit("error", { text: "Thread is not ready yet" });
         return;
       }
-      if (this.activeTurnId || this.hasPendingTurnStart() || isSessionBusy(sessionStateFor(this.threadId, this.cwd))) {
+      if (
+        this.activeTurnId ||
+        this.hasPendingTurnStart() ||
+        this.hasPendingThreadBinding() ||
+        this.upstreamThreadId !== this.threadId ||
+        isSessionBusy(sessionStateFor(this.threadId, this.cwd))
+      ) {
         this.turnQueue.push({ text, attachments, options });
         this.emit("status", { text: `キューに追加しました（${this.turnQueue.length}件待機）` });
         return;
@@ -325,6 +348,8 @@ function createSharedBridgeClass(deps) {
         !this.ready ||
         this.activeTurnId ||
         this.hasPendingTurnStart() ||
+        this.hasPendingThreadBinding() ||
+        this.upstreamThreadId !== this.threadId ||
         isSessionBusy(sessionStateFor(this.threadId, this.cwd)) ||
         !this.turnQueue.length
       ) {
@@ -365,6 +390,33 @@ function createSharedBridgeClass(deps) {
       this.pending.set(id, "turn/start");
       this.appendHistory({ type: "user", text: displayText, attachments: savedImages });
       this.emit("user", { text: displayText, attachments: savedImages });
+    }
+
+    resumeThread(threadId, options = {}) {
+      const nextThreadId = String(threadId || "");
+      if (!nextThreadId) return;
+      if (options.cwd) this.cwd = options.cwd;
+      this.threadId = nextThreadId;
+      this.requestedThreadId = nextThreadId;
+      this.rehomeBridgeKey(nextThreadId);
+      this.touchAccess();
+      if (this.upstreamThreadId === nextThreadId) {
+        this.ready = true;
+        this.emit("ready", this.readyPayload());
+        this.startNextQueuedTurn();
+        return;
+      }
+      if (this.hasPendingThreadResume(nextThreadId)) return;
+      const id = this.request("thread/resume", {
+        threadId: nextThreadId,
+        model,
+        cwd: this.cwd,
+        approvalPolicy: "on-request",
+        sandbox: "workspace-write",
+      });
+      this.pending.set(id, "thread/resume");
+      this.pendingThreadBindings.set(id, nextThreadId);
+      this.emit("status", { text: `既存threadを再開中... ${nextThreadId}` });
     }
 
     appendHistory(entry) {

@@ -41,6 +41,7 @@ function migrateBridgeThreadOwnership({ state, bridges, threadAliases, findLiveB
       directBridge.cwd = nextCwd;
       directBridge.updatedAt = Date.now();
     }
+    directBridge.resumeThread?.(state.sessionId, { cwd: nextCwd });
     return;
   }
   const sameCwdBridges = Array.from(bridges.values()).filter((bridge) => {
@@ -51,11 +52,13 @@ function migrateBridgeThreadOwnership({ state, bridges, threadAliases, findLiveB
   const [bridge] = sameCwdBridges;
   if (!bridge) return;
   if (bridge.threadId === state.sessionId) {
+    bridge.resumeThread?.(state.sessionId, { cwd: state.cwd });
     bridge.rehomeBridgeKey?.(state.sessionId);
     return;
   }
   const previousThreadId = bridge.threadId;
-  bridge.threadId = state.sessionId;
+  if (typeof bridge.resumeThread === "function") bridge.resumeThread(state.sessionId, { cwd: state.cwd });
+  else bridge.threadId = state.sessionId;
   bridge.rehomeBridgeKey?.(state.sessionId);
   if (previousThreadId) threadAliases.set(previousThreadId, state.sessionId);
 }
