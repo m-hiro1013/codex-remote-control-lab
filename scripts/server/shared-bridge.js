@@ -48,6 +48,7 @@ function createSharedBridgeClass(deps) {
       this.idleDeadlineAt = 0;
       this.cleanupTimer = null;
       this.history = [];
+      this.goal = null;
       this.turnQueue = [];
       this.upstream = createUpstreamWebSocket();
       this.bindUpstream();
@@ -114,6 +115,7 @@ function createSharedBridgeClass(deps) {
         shared: true,
         clients: this.clients.size,
         history: this.history,
+        goal: this.goal,
         materialized: this.materialized,
         sessionState: sessionStateFor(this.threadId, this.cwd),
       };
@@ -150,6 +152,37 @@ function createSharedBridgeClass(deps) {
         if (method === "thread/resume" && this.pendingThreadBindings.get(id) === threadId) return true;
       }
       return false;
+    }
+
+    normalizeGoalPayload(params = {}) {
+      const rawGoal = params && typeof params === "object" && Object.prototype.hasOwnProperty.call(params, "goal") ? params.goal : params;
+      if (!rawGoal || typeof rawGoal !== "object") return null;
+      const threadId = rawGoal.threadId || rawGoal.thread_id || params.threadId || params.thread_id || this.threadId;
+      const objective = rawGoal.objective ?? rawGoal.goal ?? rawGoal.text ?? rawGoal.description ?? "";
+      const normalized = {
+        ...rawGoal,
+        threadId,
+        objective: String(objective || ""),
+      };
+      if (normalized.tokensUsed == null && rawGoal.tokens_used != null) normalized.tokensUsed = rawGoal.tokens_used;
+      if (normalized.timeUsedSeconds == null && rawGoal.time_used_seconds != null) {
+        normalized.timeUsedSeconds = rawGoal.time_used_seconds;
+      }
+      return normalized.objective || normalized.status ? normalized : null;
+    }
+
+    updateGoalFromNotification(params = {}) {
+      const goal = this.normalizeGoalPayload(params);
+      if (goal?.threadId && this.threadId && goal.threadId !== this.threadId) return;
+      this.goal = goal;
+      this.emit("goal", { goal: this.goal });
+    }
+
+    clearGoalFromNotification(params = {}) {
+      const threadId = params?.threadId || params?.thread_id || params?.goal?.threadId || params?.goal?.thread_id;
+      if (threadId && this.threadId && threadId !== this.threadId) return;
+      this.goal = null;
+      this.emit("goal", { goal: null });
     }
 
     promoteBridgeKey() {
@@ -243,6 +276,16 @@ function createSharedBridgeClass(deps) {
             });
             this.emit("turn", { status: "started", turnId: this.activeTurnId });
           }
+          return;
+        }
+
+        if (msg.method === "thread/goal/updated") {
+          this.updateGoalFromNotification(msg.params || {});
+          return;
+        }
+
+        if (msg.method === "thread/goal/cleared") {
+          this.clearGoalFromNotification(msg.params || {});
           return;
         }
 

@@ -127,7 +127,10 @@ Tokenless debug mode intentionally skips startup notifications. If you manually 
 The current phone bridge supports:
 
 - Codex Desktop-like browser layout with a left thread sidebar, central conversation, right artifact panel, and bottom composer
-- recent thread listing and direct thread resume
+- recent thread listing with a default 14-day view, search across older history, pinned/active exceptions, and direct thread resume
+- open-session swipe targets limited to currently live bridge sessions
+- read-only Goal panel fed by Codex app-server goal notifications, with a prompt-based Goal setup CTA
+- composer `/` command suggestions and `$` shell commands routed to the terminal PTY
 - default history-sync refresh for Desktop reopen/refresh continuity
 - plugin, model, config/auth, and automation status panels
 - approval and sandbox mode controls for the next turn

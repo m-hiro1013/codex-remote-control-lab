@@ -715,6 +715,35 @@ body.resizing-sidebar .sidebar-resize-handle::before {
   padding-right: 2px;
 }
 
+.thread-list-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.thread-list-toolbar .new-project {
+  min-width: 0;
+}
+
+.thread-filter-chip {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 11px;
+  background: var(--field);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.thread-filter-chip:hover,
+.thread-filter-chip.active {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--field));
+  color: var(--text);
+}
+
 .project-group {
   margin: 12px 0 18px;
 }
@@ -880,6 +909,12 @@ button.project-heading.active {
 
 .project-more {
   color: var(--muted);
+}
+
+.thread-hidden-history {
+  margin-top: 8px;
+  padding-left: 10px;
+  text-align: center;
 }
 
 .settings {
@@ -1059,6 +1094,19 @@ body[data-main-mode="terminal"] .screen-pill-terminal {
 
 .session-count-pill {
   min-width: 38px;
+}
+
+.goal-status-pill {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1;
 }
 
 .mode-switch {
@@ -3042,6 +3090,10 @@ body[data-main-mode="terminal"] .terminal-mode {
   box-shadow: var(--composer-shadow);
 }
 
+.composer.shell-command-active {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--composer-border));
+}
+
 .composer::before {
   content: "";
   pointer-events: none;
@@ -3114,6 +3166,70 @@ textarea:focus-visible {
 
 textarea::placeholder {
   color: color-mix(in srgb, var(--muted) 78%, transparent);
+}
+
+.composer-command-hint {
+  margin: 0 14px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--card));
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.slash-command-menu {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  display: grid;
+  gap: 4px;
+  max-height: min(330px, 60vh);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 7px;
+  background: var(--card);
+  box-shadow: 0 20px 44px color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.slash-command-option {
+  display: grid;
+  grid-template-columns: minmax(76px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.slash-command-option:hover,
+.slash-command-option.selected {
+  background: var(--soft);
+}
+
+.slash-command-main {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.slash-command-detail {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (hover: none) {
@@ -3492,6 +3608,60 @@ textarea::placeholder {
   display: grid;
   gap: 12px;
   padding: 4px 0;
+}
+
+.goal-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--card);
+}
+
+.goal-card.is-empty {
+  background: var(--soft);
+}
+
+.goal-kicker {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.goal-card strong {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.goal-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.goal-meta span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.goal-meta b {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 .goal-field {

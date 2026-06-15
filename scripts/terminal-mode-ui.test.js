@@ -51,6 +51,7 @@ test("Shell renders chat/terminal mode controls on the same remote session surfa
   assert.match(shell, /className="titlebar-mode-icon"/);
   assert.match(shell, /screen-pill screen-pill-chat/);
   assert.match(shell, /screen-pill screen-pill-terminal/);
+  assert.match(shell, /id="goalStatusPill"/);
   assert.match(shell, /id="terminalHost"/);
   assert.match(shell, /id="terminalInputArea"/);
   assert.match(shell, /id="terminalPrompt"/);
@@ -73,6 +74,14 @@ test("browser logic attaches terminal mode to the selected Codex thread through 
   assert.match(main, /url\.searchParams\.set\("thread", threadId\)/);
   assert.match(main, /terminalReconnect\?\.addEventListener\("click"/);
   assert.match(main, /function submitTerminalPrompt\(\)/);
+  assert.match(main, /async function sendComposerShellCommand\(command\)/);
+  assert.match(main, /setMainMode\("terminal"\)/);
+  assert.match(main, /ensureNativeTerminalConnected\(\{ focus: true \}\)/);
+  assert.match(main, /nativeTerminal\?\.isOpen\?\.\(\)/);
+  assert.match(main, /sendNativeTerminalInput\(`\$\{text\}\\r`\)/);
+  assert.match(main, /function syncGoalIndicator\(goal = currentGoal\)/);
+  assert.match(main, /const goalStatusPill = document\.querySelector\("#goalStatusPill"\)/);
+  assert.match(main, /goalStatusPill\.classList\.toggle\("hidden", !hasGoal\)/);
   assert.match(main, /promptInput\.addEventListener\("keydown", \(event\) => \{[\s\S]*event\.metaKey \|\| event\.ctrlKey[\s\S]*composer\.requestSubmit\(\);/);
   assert.match(main, /function applyRemoteSessionState\(state\)/);
   assert.match(main, /onSessionState: applyRemoteSessionState/);
@@ -217,6 +226,7 @@ test("terminal client bundles xterm and forwards raw terminal input", () => {
   assert.match(client, /from "@xterm\/xterm"/);
   assert.match(client, /from "@xterm\/addon-fit"/);
   assert.match(client, /connect\(\{ threadId, cwd, force = false, focus = true \} = \{\}\)/);
+  assert.match(client, /isOpen\(\) \{\s+return this\.ws\?\.readyState === WebSocket\.OPEN;/);
   assert.match(client, /if \(focus\) this\.term\.focus\(\)/);
   assert.match(client, /this\.term\.onData\(\(data\) => this\.sendInput\(data\)\)/);
   assert.match(client, /this\.ws\.send\(JSON\.stringify\(\{ type: "input", data \}\)\)/);

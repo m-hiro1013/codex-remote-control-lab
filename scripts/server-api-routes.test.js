@@ -188,39 +188,45 @@ test("handleApiRequest lists normalized history threads with limit and cursor", 
   });
 });
 
-test("handleApiRequest reads and writes thread goals", async () => {
+test("handleApiRequest reads thread goals from the live bridge without unsupported RPCs", async () => {
   const calls = [];
+  const goal = {
+    threadId: "thread-a",
+    objective: "ship it",
+    status: "in_progress",
+    tokensUsed: 42,
+  };
   const { handleApiRequest } = createApiRoutes(baseDeps({
     appServerRequest: async (method, params) => {
       calls.push({ method, params });
-      if (method === "thread/goal/get") return { goal: calls.some((call) => call.method === "thread/goal/set") ? "ship it" : null };
       return {};
     },
+    findLiveBridge: (_bridges, threadId) => (threadId === "thread-a" ? { threadId, goal } : null),
   }));
   const getRes = new CaptureResponse();
 
   await handleApiRequest(Readable.from([]), getRes, new URL("http://local.test/api/goal?token=secret&thread=thread-a"), "secret");
-  assert.deepEqual(getRes.json(), { supported: true, goal: null });
 
-  const postRes = new CaptureResponse();
-  const req = Readable.from([JSON.stringify({ thread: "thread-a", goal: "ship it" })]);
-  req.method = "POST";
-  await handleApiRequest(req, postRes, new URL("http://local.test/api/goal?token=secret"), "secret");
-
-  assert.deepEqual(calls.map((call) => call.method), ["thread/goal/get", "thread/goal/set", "thread/goal/get"]);
-  assert.deepEqual(postRes.json(), { supported: true, goal: "ship it" });
+  assert.deepEqual(calls, []);
+  assert.equal(getRes.statusCode, 200);
+  assert.deepEqual(getRes.json(), { supported: true, readOnly: true, goal });
 });
 
-test("handleApiRequest reports unsupported goals without failing the UI", async () => {
+test("handleApiRequest rejects goal writes because goals are updated by app-server notifications", async () => {
+  const calls = [];
   const { handleApiRequest } = createApiRoutes(baseDeps({
-    appServerRequest: async () => {
-      throw new Error("failed to read thread goal: no such table: thread_goals");
+    appServerRequest: async (method, params) => {
+      calls.push({ method, params });
+      return {};
     },
   }));
   const res = new CaptureResponse();
+  const req = Readable.from([JSON.stringify({ thread: "thread-a", goal: "ship it" })]);
+  req.method = "POST";
 
-  await handleApiRequest(Readable.from([]), res, new URL("http://local.test/api/goal?token=secret&thread=thread-a"), "secret");
+  await handleApiRequest(req, res, new URL("http://local.test/api/goal?token=secret"), "secret");
 
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { supported: false, goal: null, error: "goals unsupported" });
+  assert.deepEqual(calls, []);
+  assert.equal(res.statusCode, 405);
+  assert.deepEqual(res.json(), { supported: true, readOnly: true, error: "goal is read-only" });
 });

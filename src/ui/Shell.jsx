@@ -114,6 +114,7 @@ function Header() {
               <span className="screen-pill screen-pill-chat">Chat</span>
               <span className="screen-pill screen-pill-terminal">Terminal</span>
               <span className="screen-pill session-count-pill" id="sessionCountPill">1/1</span>
+              <span className="goal-status-pill hidden" id="goalStatusPill" aria-label="Goal 未設定" title="">🎯</span>
               <p id="meta">接続準備中</p>
             </div>
           </div>
@@ -182,6 +183,8 @@ function Composer() {
       <input id="fileInput" className="hidden" type="file" accept="image/*" multiple />
       <div id="attachments" className="attachments" aria-live="polite" />
       <textarea id="prompt" rows="2" placeholder="フォローアップの変更を求める" aria-label="Codex へのメッセージ" />
+      <div id="composerCommandHint" className="composer-command-hint hidden" role="status" aria-live="polite"></div>
+      <div id="slashCommandMenu" className="slash-command-menu hidden" role="listbox" aria-label="スラッシュコマンド"></div>
       <div className="composer-footer">
         <div className="composer-left">
           <button type="button" className="ghost-button icon-only" id="addButton" aria-label="画像を添付"><Plus size={18} strokeWidth={1.9} /></button>

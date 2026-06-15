@@ -41,6 +41,10 @@ var CodexSessionBrowserState = (() => {
       function normalizePinnedThreadIds(items) {
         return normalizeClosedThreadIds(items);
       }
+      function isLiveThreadForOpenSession(thread) {
+        if (!thread?.id) return false;
+        return thread.source !== "history";
+      }
       function cloneState(state) {
         return {
           selectedThread: state.selectedThread,
@@ -156,7 +160,7 @@ var CodexSessionBrowserState = (() => {
         }
         function syncFromLiveThreads(threads, options = {}) {
           const titleForThread = typeof options.titleForThread === "function" ? options.titleForThread : (thread) => thread?.id || "";
-          const liveThreads = Array.isArray(threads) ? threads : [];
+          const liveThreads = Array.isArray(threads) ? threads.filter(isLiveThreadForOpenSession) : [];
           const liveIds = new Set(liveThreads.map((thread) => thread?.id).filter(Boolean));
           const previousActive = state.openSessions.find((session) => session.key === state.activeSessionKey && session.threadId) || state.resumeCandidateSession || null;
           const known = new Map(state.openSessions.map((item) => [item.threadId, { ...item }]));

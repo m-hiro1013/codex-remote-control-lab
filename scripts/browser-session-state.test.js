@@ -73,6 +73,26 @@ test("session store keeps a resume candidate when the live thread is temporarily
   assert.equal(next.resumeCandidateSession?.status, "resume_pending");
 });
 
+test("session store ignores history rows when syncing open sessions", () => {
+  const store = createSessionStore({
+    selectedThread: "thread-live",
+    currentWorkdir: root,
+    openSessions: [{ threadId: "thread-live", cwd: root, title: "live" }],
+    activeSessionKey: `thread-live::${root}`,
+  });
+
+  const next = store.syncFromLiveThreads(
+    [
+      { id: "thread-history", cwd: "/tmp/old-project", source: "history", status: "idle", updatedAt: 20 },
+      { id: "thread-live", cwd: root, source: "live-bridge", status: "input_ready", updatedAt: 30 },
+    ],
+    { titleForThread },
+  );
+
+  assert.deepEqual(next.openSessions.map((session) => session.threadId), ["thread-live"]);
+  assert.equal(next.openSessions[0].title, "title:thread-live");
+});
+
 test("session store toggles pinned threads independently from closed sessions", () => {
   const store = createSessionStore({
     selectedThread: "thread-a",

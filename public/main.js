@@ -62,6 +62,7 @@ const threadSearch = document.querySelector("#threadSearch");
 const threadTitle = document.querySelector("#threadTitle");
 const sessionSwitcher = document.querySelector("#sessionSwitcher");
 const sessionCountPill = document.querySelector("#sessionCountPill");
+const goalStatusPill = document.querySelector("#goalStatusPill");
 const sessionSwipeHint = document.querySelector("#sessionSwipeHint");
 const sessionSwipePrev = document.querySelector("#sessionSwipePrev");
 const sessionSwipeLabel = document.querySelector("#sessionSwipeLabel");
@@ -84,6 +85,8 @@ const openSessionList = document.querySelector("#openSessionList");
 const composer = document.querySelector("#composer");
 const promptInput = document.querySelector("#prompt");
 const sendButton = document.querySelector("#send");
+const composerCommandHint = document.querySelector("#composerCommandHint");
+const slashCommandMenu = document.querySelector("#slashCommandMenu");
 const approval = document.querySelector("#approval");
 const approvalText = document.querySelector("#approvalText");
 const approveButton = document.querySelector("#approve");
@@ -201,6 +204,7 @@ let artifactItems = [];
 let archiveSelection = new Set();
 let activeArtifactPath = "";
 let activePanel = "artifacts";
+let currentGoal = null;
 let currentWorkdir = "";
 let nextThreadCwd = "";
 let forceNewThreadOnce = false;
@@ -212,6 +216,9 @@ const closedThreadIdsStorageKey = "codexRemoteClosedThreadIds";
 const pinnedThreadIdsStorageKey = "codexRemotePinnedThreadIds";
 const expandedThreadGroupsStorageKey = "codexRemoteExpandedThreadGroups";
 const collapsedThreadGroupsStorageKey = "codexRemoteCollapsedThreadGroups";
+const showAllThreadsStorageKey = "codexRemoteShowAllThreads";
+const threadListFilterRuntime = window.CodexThreadListFilter || {};
+const composerCommandRuntime = window.CodexComposerCommand || {};
 const maxCwdHistory = 8;
 let openSessions = [];
 let activeSessionKey = "";
@@ -222,6 +229,7 @@ let pinnedThreadIds = new Set();
 let historyThreadCache = [];
 let liveThreadCache = [];
 let threadListLoaded = false;
+let showAllThreads = localStorage.getItem(showAllThreadsStorageKey) === "1";
 let sessionCreateCwd = localStorage.getItem("codexRemoteLastCwd") || "";
 let sessionBrowserCurrentPath = sessionCreateCwd || "";
 let sessionBrowserParentPath = "";
@@ -250,6 +258,13 @@ const sessionStore = sessionStateRuntime.createSessionStore({
 });
 syncSessionState(sessionStore.snapshot());
 let pendingFiles = [];
+let slashMenuState = {
+  open: false,
+  candidates: [],
+  selectedIndex: 0,
+  replaceStart: 0,
+  replaceEnd: 0,
+};
 
 const panelWidthConfig = {
   left: { min: 188, max: 360, fallback: 232, storageKey: "codexLeftSidebarWidth", cssVar: "--thread-width" },
@@ -547,7 +562,7 @@ function addOrUpdateOpenSession(input) {
 
 function syncOpenSessionsFromThreads() {
   syncSessionState(
-    sessionStore.syncFromLiveThreads(threadCache, {
+    sessionStore.syncFromLiveThreads(liveThreadCache, {
       titleForThread,
     }),
   );
@@ -1354,12 +1369,35 @@ function renderHistoryIfChanged(history = []) {
 function renderThreadList() {
   threadList.replaceChildren();
   const query = threadSearch.value.trim().toLowerCase();
+  const now = Date.now();
+  const hasSearchQuery = Boolean(query);
+  const filterOptions = {
+    pinnedThreadIds,
+    selectedThread,
+    showAllThreads,
+    hasSearchQuery,
+  };
+  const shouldShowThread = threadListFilterRuntime.shouldShowThreadInSidebar || (() => true);
+  const toolbar = document.createElement("div");
+  toolbar.className = "thread-list-toolbar";
   const newProject = document.createElement("button");
   newProject.type = "button";
   newProject.className = selectedThread ? "project-heading new-project" : "project-heading new-project active";
   newProject.innerHTML = `${fontAwesomeIcon("folderPlus", "project-icon")}<span>New project</span>`;
   newProject.addEventListener("click", startNewThread);
-  threadList.appendChild(newProject);
+  const showAllToggle = document.createElement("button");
+  showAllToggle.type = "button";
+  showAllToggle.className = showAllThreads ? "thread-filter-chip active" : "thread-filter-chip";
+  showAllToggle.setAttribute("aria-pressed", showAllThreads ? "true" : "false");
+  showAllToggle.textContent = showAllThreads ? "すべて表示中" : "14日以内";
+  showAllToggle.title = showAllThreads ? "古い履歴も表示中" : "14日より古い履歴は隠す";
+  showAllToggle.addEventListener("click", () => {
+    showAllThreads = !showAllThreads;
+    localStorage.setItem(showAllThreadsStorageKey, showAllThreads ? "1" : "0");
+    renderThreadList();
+  });
+  toolbar.append(newProject, showAllToggle);
+  threadList.appendChild(toolbar);
   if (!threadListLoaded) {
     const skeleton = document.createElement("div");
     skeleton.className = "thread-list-skeleton";
@@ -1370,12 +1408,17 @@ function renderThreadList() {
 
   const groups = new Map();
   const pinned = [];
+  let hiddenOldCount = 0;
   for (const thread of threadCache) {
     const projectKey = projectKeyForThread(thread);
     const title = titleForThread(thread);
     const searchText = `${projectKey} ${projectForThread(thread)} ${title} ${thread.preview || ""} ${thread.id || ""}`.toLowerCase();
     const matches = !query || searchText.includes(query);
     if (!matches) continue;
+    if (!shouldShowThread(thread, now, filterOptions)) {
+      hiddenOldCount += 1;
+      continue;
+    }
     if (pinnedThreadIds.has(thread.id)) pinned.push(thread);
     if (!groups.has(projectKey)) groups.set(projectKey, []);
     groups.get(projectKey).push(thread);
@@ -1487,6 +1530,19 @@ function renderThreadList() {
 
   for (const [projectKey, threads] of groups) {
     renderGroup(projectKey, threads);
+  }
+
+  if (!showAllThreads && !hasSearchQuery && hiddenOldCount > 0) {
+    const hidden = document.createElement("button");
+    hidden.type = "button";
+    hidden.className = "project-more thread-hidden-history";
+    hidden.textContent = `他に ${hiddenOldCount} 件（古い履歴）`;
+    hidden.addEventListener("click", () => {
+      showAllThreads = true;
+      localStorage.setItem(showAllThreadsStorageKey, "1");
+      renderThreadList();
+    });
+    threadList.appendChild(hidden);
   }
 }
 
@@ -2524,54 +2580,120 @@ async function showReview() {
   }
 }
 
-function renderGoalEditor(goal = "") {
+function normalizeGoalForDisplay(goal) {
+  if (!goal) return null;
+  if (typeof goal === "string") return goal.trim() ? { objective: goal.trim() } : null;
+  if (typeof goal !== "object") return null;
+  const objective = goal.objective ?? goal.goal ?? goal.text ?? goal.description ?? "";
+  const tokensUsed = goal.tokensUsed ?? goal.tokens_used;
+  const timeUsedSeconds = goal.timeUsedSeconds ?? goal.time_used_seconds;
+  return {
+    ...goal,
+    objective: String(objective || ""),
+    tokensUsed,
+    timeUsedSeconds,
+  };
+}
+
+function syncGoalIndicator(goal = currentGoal) {
+  if (!goalStatusPill) return;
+  const normalized = normalizeGoalForDisplay(goal);
+  const hasGoal = Boolean(normalized?.objective || normalized?.status);
+  goalStatusPill.classList.toggle("hidden", !hasGoal);
+  goalStatusPill.setAttribute("aria-label", hasGoal ? "Goal 設定済み" : "Goal 未設定");
+  goalStatusPill.title = hasGoal ? "Goal 設定済み" : "";
+}
+
+function formatGoalNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "";
+  return number.toLocaleString("ja-JP");
+}
+
+function formatGoalDuration(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  if (seconds < 60) return `${Math.floor(seconds)}秒`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}分`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes ? `${hours}時間${restMinutes}分` : `${hours}時間`;
+}
+
+function formatGoalUpdatedAt(value) {
+  if (!value) return "";
+  const raw = typeof value === "number" && value < 10_000_000_000 ? value * 1000 : value;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function createGoalSettingPrompt(objective) {
+  return `このスレッドのゴールを次に設定して: ${objective}`;
+}
+
+function sendGoalSettingPrompt(objective, { sendNow = true } = {}) {
+  const text = String(objective || "").trim();
+  if (!text) {
+    addStatus("Goal 内容を入力してください。");
+    return;
+  }
+  const promptText = createGoalSettingPrompt(text);
+  setMainMode("chat");
+  if (sendNow && sendPromptToBridge(promptText, [])) {
+    addStatus("Goal 設定プロンプトを送信しました。");
+    return;
+  }
+  appendToPrompt(promptText);
+  addStatus("Goal 設定プロンプトを入力欄に追加しました。");
+}
+
+function renderGoalView(goal = currentGoal) {
+  const normalized = normalizeGoalForDisplay(goal);
+  currentGoal = normalized;
+  syncGoalIndicator(currentGoal);
   artifactList.replaceChildren();
   artifactList.classList.add("artifact-browser-list");
   const wrap = document.createElement("div");
   wrap.className = "goal-editor";
+  const status = normalized?.status || "";
+  const tokensUsed = formatGoalNumber(normalized?.tokensUsed);
+  const timeUsed = formatGoalDuration(normalized?.timeUsedSeconds);
+  const updatedAt = formatGoalUpdatedAt(normalized?.updatedAt || normalized?.updated_at);
+  const detailRows = [
+    ["Status", status],
+    ["Tokens", tokensUsed],
+    ["Time", timeUsed],
+    ["Updated", updatedAt],
+  ]
+    .filter(([, value]) => value)
+    .map(([label, value]) => `<span><b>${escapeHtml(label)}</b>${escapeHtml(value)}</span>`)
+    .join("");
+  const objective = normalized?.objective || "";
   wrap.innerHTML = `
+    <section class="goal-card ${normalized ? "" : "is-empty"}">
+      <span class="goal-kicker">${normalized ? "現在の Goal" : "未設定"}</span>
+      <strong>${escapeHtml(objective || "このスレッドにはまだ goal がありません")}</strong>
+      ${detailRows ? `<div class="goal-meta">${detailRows}</div>` : ""}
+    </section>
     <label class="goal-field">
-      <span>Goal</span>
-      <textarea id="goalEditorText" rows="6" placeholder="この thread の goal を入力">${escapeHtml(goal || "")}</textarea>
+      <span>${normalized ? "Goal を更新" : "Goal を設定"}</span>
+      <textarea id="goalPromptText" rows="5" placeholder="この thread の goal を入力">${escapeHtml(objective)}</textarea>
     </label>
     <div class="goal-actions">
-      <button type="button" class="secondary" id="goalClearButton">Clear</button>
-      <button type="button" id="goalSaveButton">Save</button>
+      <button type="button" class="secondary" id="goalPromptAppendButton">入力欄へ追加</button>
+      <button type="button" id="goalPromptSendButton">設定プロンプトを送信</button>
     </div>
   `;
   artifactList.appendChild(wrap);
-  const textarea = wrap.querySelector("#goalEditorText");
-  wrap.querySelector("#goalSaveButton")?.addEventListener("click", async () => {
-    try {
-      const result = await apiPost("/api/goal", { thread: selectedThread, goal: textarea.value });
-      if (!result.supported) {
-        renderGoalUnsupported();
-        return;
-      }
-      addStatus("Goal を保存しました。");
-      renderGoalEditor(result.goal || textarea.value);
-    } catch (error) {
-      showToolError("Goal", error);
-    }
+  const textarea = wrap.querySelector("#goalPromptText");
+  wrap.querySelector("#goalPromptSendButton")?.addEventListener("click", () => {
+    sendGoalSettingPrompt(textarea.value, { sendNow: true });
   });
-  wrap.querySelector("#goalClearButton")?.addEventListener("click", async () => {
-    try {
-      const result = await apiPost("/api/goal", { thread: selectedThread, goal: "" });
-      if (!result.supported) {
-        renderGoalUnsupported();
-        return;
-      }
-      addStatus("Goal をクリアしました。");
-      renderGoalEditor("");
-    } catch (error) {
-      showToolError("Goal", error);
-    }
+  wrap.querySelector("#goalPromptAppendButton")?.addEventListener("click", () => {
+    sendGoalSettingPrompt(textarea.value, { sendNow: false });
   });
-}
-
-function renderGoalUnsupported() {
-  artifactList.replaceChildren();
-  addPanelRow("この Codex バージョンは goals 未対応", "app-server が thread_goals を利用できません", null, "GOAL");
 }
 
 async function showGoal() {
@@ -2583,11 +2705,7 @@ async function showGoal() {
   addPanelRow("読み込み中...");
   try {
     const result = await apiGet(`/api/goal?thread=${encodeURIComponent(selectedThread)}`);
-    if (!result.supported) {
-      renderGoalUnsupported();
-      return;
-    }
-    renderGoalEditor(result.goal || "");
+    renderGoalView(result.goal || null);
   } catch (error) {
     showToolError("Goal", error);
   }
@@ -3000,6 +3118,185 @@ function sendApprovalToBridge(decision) {
   return true;
 }
 
+function slashCommands() {
+  return Array.isArray(composerCommandRuntime.SLASH_COMMANDS) ? composerCommandRuntime.SLASH_COMMANDS : [];
+}
+
+function classifyComposerSubmit(text) {
+  if (typeof composerCommandRuntime.classifyComposerSubmit === "function") {
+    return composerCommandRuntime.classifyComposerSubmit(text, slashCommands());
+  }
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return { kind: "empty" };
+  const leadingTrimmed = String(text || "").trimStart();
+  if (leadingTrimmed.startsWith("$")) {
+    const command = leadingTrimmed.slice(1).trim();
+    return command ? { kind: "shell", command } : { kind: "empty-shell" };
+  }
+  return { kind: "chat", text: trimmed };
+}
+
+function getComposerSlashState() {
+  if (typeof composerCommandRuntime.getComposerCommandState !== "function") return { kind: "none" };
+  return composerCommandRuntime.getComposerCommandState(
+    promptInput.value,
+    promptInput.selectionStart ?? promptInput.value.length,
+    slashCommands(),
+  );
+}
+
+function hideSlashCommandMenu() {
+  slashMenuState = { ...slashMenuState, open: false, candidates: [] };
+  slashCommandMenu?.classList.add("hidden");
+  slashCommandMenu?.replaceChildren();
+}
+
+function renderSlashCommandMenu(state) {
+  if (!slashCommandMenu) return;
+  if (state.kind !== "slash" || !state.candidates.length) {
+    hideSlashCommandMenu();
+    return;
+  }
+  slashMenuState = {
+    open: true,
+    candidates: state.candidates,
+    selectedIndex: Math.min(slashMenuState.selectedIndex, state.candidates.length - 1),
+    replaceStart: state.replaceStart,
+    replaceEnd: state.replaceEnd,
+  };
+  slashCommandMenu.replaceChildren();
+  for (const [index, command] of state.candidates.entries()) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "slash-command-option";
+    option.classList.toggle("selected", index === slashMenuState.selectedIndex);
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(index === slashMenuState.selectedIndex));
+    option.dataset.index = String(index);
+    option.innerHTML = `
+      <span class="slash-command-main">${escapeHtml(command.label || command.value)}</span>
+      <span class="slash-command-detail">${escapeHtml(command.description || "")}</span>
+    `;
+    option.addEventListener("mousedown", (event) => event.preventDefault());
+    option.addEventListener("click", () => executeSlashCommand(command, { fromMenu: true }));
+    slashCommandMenu.appendChild(option);
+  }
+  slashCommandMenu.classList.remove("hidden");
+}
+
+function updateSlashSelection(index) {
+  if (!slashMenuState.open || !slashMenuState.candidates.length) return;
+  const total = slashMenuState.candidates.length;
+  slashMenuState.selectedIndex = ((index % total) + total) % total;
+  for (const [buttonIndex, button] of Array.from(slashCommandMenu?.children || []).entries()) {
+    const selected = buttonIndex === slashMenuState.selectedIndex;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-selected", String(selected));
+  }
+}
+
+function insertSlashCommand(command, menuState = slashMenuState) {
+  const value = `${command.value || `/${command.id || ""}`} `;
+  const start = menuState.open ? menuState.replaceStart : 0;
+  const end = menuState.open ? menuState.replaceEnd : promptInput.value.length;
+  promptInput.value = `${promptInput.value.slice(0, start)}${value}${promptInput.value.slice(end)}`;
+  const cursor = start + value.length;
+  promptInput.setSelectionRange(cursor, cursor);
+  promptInput.focus();
+  updateComposerCommandUi();
+}
+
+function executeSlashCommand(command, { fromMenu = false } = {}) {
+  const previousMenuState = { ...slashMenuState };
+  hideSlashCommandMenu();
+  const action = command?.action || "insert";
+  if (action === "new-thread") {
+    promptInput.value = "";
+    openSessionCreatePage();
+    return;
+  }
+  if (action === "review") {
+    promptInput.value = "";
+    showReview();
+    return;
+  }
+  if (action === "status") {
+    promptInput.value = "";
+    showStatus();
+    return;
+  }
+  if (action === "model") {
+    promptInput.value = "";
+    toggleModelMenu();
+    modelButton.focus();
+    return;
+  }
+  if (action === "goal") {
+    promptInput.value = "";
+    showGoal();
+    return;
+  }
+  if (fromMenu) insertSlashCommand(command, previousMenuState);
+  else addStatus(`${command?.value || "/"} は入力欄へ挿入してから編集してください。`);
+}
+
+function updateComposerCommandUi() {
+  const submitState = classifyComposerSubmit(promptInput.value);
+  const isShellCommand = submitState.kind === "shell";
+  composer.classList.toggle("shell-command-active", isShellCommand);
+  if (composerCommandHint) {
+    composerCommandHint.textContent = isShellCommand ? `ターミナルで実行: ${submitState.command}` : "";
+    composerCommandHint.classList.toggle("hidden", !isShellCommand);
+  }
+  renderSlashCommandMenu(getComposerSlashState());
+}
+
+function waitForNativeTerminalOpen(timeoutMs = 4000) {
+  if (nativeTerminal?.isOpen?.()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const tick = () => {
+      if (nativeTerminal?.isOpen?.()) {
+        resolve(true);
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        resolve(false);
+        return;
+      }
+      setTimeout(tick, 50);
+    };
+    tick();
+  });
+}
+
+async function sendComposerShellCommand(command) {
+  const text = String(command || "").trim();
+  if (!text) {
+    addStatus("$ の後に実行するコマンドを入力してください。");
+    return false;
+  }
+  setMainMode("terminal");
+  if (!selectedThread) {
+    addStatus("thread が準備できてから $ コマンドを送信できます。");
+    connect();
+    return false;
+  }
+  if (!ensureNativeTerminalConnected({ focus: true })) {
+    addStatus("ターミナル接続を開始できませんでした。");
+    return false;
+  }
+  const opened = await waitForNativeTerminalOpen();
+  if (!opened) {
+    addStatus("ターミナル接続待ちがタイムアウトしました。");
+    return false;
+  }
+  const sent = sendNativeTerminalInput(`${text}\r`);
+  if (sent) addStatus(`ターミナルで実行: ${text}`);
+  else addStatus("ターミナルへ送信できませんでした。");
+  return sent;
+}
+
 function clearReconnectTimer() {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = null;
@@ -3062,11 +3359,19 @@ function connect(options = {}) {
       setCurrentWorkdir(msg.workdir);
       const materialized = Boolean((msg.history || []).length);
       syncReadyThread(msg.threadId, { prewarmTerminal: materialized });
+      currentGoal = normalizeGoalForDisplay(msg.goal || null);
+      syncGoalIndicator(currentGoal);
       renderHistoryIfChanged(msg.history || []);
       meta.textContent = `${msg.model}  •  ${msg.clients}端末`;
       setRunState("ready");
       if (msg.sessionState) applyRemoteSessionState(msg.sessionState);
       addEntry("status", `共有Codex thread ready: ${msg.threadId}`);
+      return;
+    }
+    if (msg.type === "goal") {
+      currentGoal = normalizeGoalForDisplay(msg.goal || null);
+      syncGoalIndicator(currentGoal);
+      if (activePanel === "goal" && !document.body.classList.contains("hide-artifacts")) renderGoalView(currentGoal);
       return;
     }
     if (msg.type === "sessionState") {
@@ -3132,24 +3437,71 @@ function connect(options = {}) {
   });
 }
 
-composer.addEventListener("submit", (event) => {
+composer.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const text = promptInput.value.trim();
-  if (text === "/goal") {
-    promptInput.value = "";
-    showGoal();
+  const text = promptInput.value;
+  const submitState = classifyComposerSubmit(text);
+  if (submitState.kind === "empty") return;
+  if (submitState.kind === "empty-shell") {
+    addStatus("$ の後に実行するコマンドを入力してください。");
     return;
   }
-  if (!sendPromptToBridge(text, pendingFiles)) return;
+  if (submitState.kind === "shell") {
+    const sent = await sendComposerShellCommand(submitState.command);
+    if (!sent) return;
+    promptInput.value = "";
+    updateComposerCommandUi();
+    return;
+  }
+  if (submitState.kind === "slash") {
+    executeSlashCommand(submitState.command);
+    updateComposerCommandUi();
+    return;
+  }
+  if (!sendPromptToBridge(submitState.text || text, pendingFiles)) return;
   promptInput.value = "";
   pendingFiles = [];
   renderAttachments();
+  updateComposerCommandUi();
 });
 promptInput.addEventListener("keydown", (event) => {
+  if (!event.isComposing && slashMenuState.open) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      updateSlashSelection(slashMenuState.selectedIndex + 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      updateSlashSelection(slashMenuState.selectedIndex - 1);
+      return;
+    }
+    if (event.key === "Enter" && !(event.metaKey || event.ctrlKey || event.shiftKey)) {
+      event.preventDefault();
+      executeSlashCommand(slashMenuState.candidates[slashMenuState.selectedIndex], { fromMenu: true });
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      hideSlashCommandMenu();
+      return;
+    }
+  }
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
     event.preventDefault();
     composer.requestSubmit();
   }
+});
+promptInput.addEventListener("input", updateComposerCommandUi);
+promptInput.addEventListener("click", updateComposerCommandUi);
+promptInput.addEventListener("keyup", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  updateComposerCommandUi();
+});
+document.addEventListener("click", (event) => {
+  if (!slashMenuState.open) return;
+  if (slashCommandMenu?.contains(event.target) || promptInput.contains(event.target)) return;
+  hideSlashCommandMenu();
 });
 
 approveButton.addEventListener("click", () => {

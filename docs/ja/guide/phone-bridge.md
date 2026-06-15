@@ -95,7 +95,10 @@ background の thread 一覧 polling は、同じ error の連続表示を抑え
 
 ## UI でできること
 
-- 最近の thread 一覧と resume
+- 既定 14 日 filter、古い履歴の検索、thread resume に対応した最近の thread 一覧
+- swipe target / Open sessions を稼働中 bridge session のみに限定
+- app-server の goal notification を表示する read-only Goal panel と、prompt 経由の Goal 設定 CTA
+- composer の `/` command suggestion と、`$` shell command の terminal PTY 実行
 - デスクトップ Codex セッションをスマホから操作
 - shared bridge-managed thread による PC/スマホ間の継続利用
 - model、plugin、config、auth、automation の確認

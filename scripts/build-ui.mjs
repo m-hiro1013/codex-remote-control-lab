@@ -9,10 +9,14 @@ const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
 const sourcePath = path.join(repoRoot, "src/ui/Shell.jsx");
 const terminalClientPath = path.join(repoRoot, "src/ui/terminal-client.js");
 const browserSessionStatePath = path.join(repoRoot, "scripts/browser-session-state.js");
+const threadListFilterPath = path.join(repoRoot, "scripts/thread-list-filter.js");
+const composerCommandPath = path.join(repoRoot, "scripts/composer-command.js");
 const outputPath = path.join(repoRoot, "public/index.html");
 const terminalOutputPath = path.join(repoRoot, "public/terminal-client.js");
 const terminalCssOutputPath = path.join(repoRoot, "public/terminal-client.css");
 const browserSessionStateOutputPath = path.join(repoRoot, "public/browser-session-state.js");
+const threadListFilterOutputPath = path.join(repoRoot, "public/thread-list-filter.js");
+const composerCommandOutputPath = path.join(repoRoot, "public/composer-command.js");
 const checkOnly = process.argv.includes("--check");
 
 async function importJsxModule(filePath) {
@@ -54,6 +58,8 @@ function renderDocument(shell) {
     ${shell}
     <script src="/terminal-client.js"></script>
     <script src="/browser-session-state.js"></script>
+    <script src="/thread-list-filter.js"></script>
+    <script src="/composer-command.js"></script>
     <script src="/main.js"></script>
   </body>
 </html>
@@ -120,6 +126,64 @@ async function buildBrowserSessionState({ check }) {
   }
 }
 
+async function buildThreadListFilter({ check }) {
+  const tmpDir = path.join(repoRoot, "node_modules/.cache/codex-remote-control-lab");
+  const outJs = check ? path.join(tmpDir, `thread-list-filter-${process.pid}.js`) : threadListFilterOutputPath;
+  await fs.mkdir(path.dirname(outJs), { recursive: true });
+  await esbuild.build({
+    entryPoints: [threadListFilterPath],
+    bundle: true,
+    format: "iife",
+    globalName: "CodexThreadListFilter",
+    target: "es2020",
+    outfile: outJs,
+    sourcemap: false,
+    logLevel: "silent",
+  });
+  if (!check) return;
+  try {
+    const [currentJs, nextJs] = await Promise.all([
+      fs.readFile(threadListFilterOutputPath, "utf8"),
+      fs.readFile(outJs, "utf8"),
+    ]);
+    if (currentJs !== nextJs) {
+      console.error("public/thread-list-filter.js is out of date. Run npm run build:ui.");
+      process.exit(1);
+    }
+  } finally {
+    await fs.rm(outJs, { force: true });
+  }
+}
+
+async function buildComposerCommand({ check }) {
+  const tmpDir = path.join(repoRoot, "node_modules/.cache/codex-remote-control-lab");
+  const outJs = check ? path.join(tmpDir, `composer-command-${process.pid}.js`) : composerCommandOutputPath;
+  await fs.mkdir(path.dirname(outJs), { recursive: true });
+  await esbuild.build({
+    entryPoints: [composerCommandPath],
+    bundle: true,
+    format: "iife",
+    globalName: "CodexComposerCommand",
+    target: "es2020",
+    outfile: outJs,
+    sourcemap: false,
+    logLevel: "silent",
+  });
+  if (!check) return;
+  try {
+    const [currentJs, nextJs] = await Promise.all([
+      fs.readFile(composerCommandOutputPath, "utf8"),
+      fs.readFile(outJs, "utf8"),
+    ]);
+    if (currentJs !== nextJs) {
+      console.error("public/composer-command.js is out of date. Run npm run build:ui.");
+      process.exit(1);
+    }
+  } finally {
+    await fs.rm(outJs, { force: true });
+  }
+}
+
 const { CodexRemoteShell } = await importJsxModule(sourcePath);
 const shell = renderToStaticMarkup(React.createElement(CodexRemoteShell));
 const html = renderDocument(shell);
@@ -132,9 +196,13 @@ if (checkOnly) {
   }
   await buildTerminalClient({ check: true });
   await buildBrowserSessionState({ check: true });
+  await buildThreadListFilter({ check: true });
+  await buildComposerCommand({ check: true });
 } else {
   await fs.writeFile(outputPath, html, "utf8");
   await buildTerminalClient({ check: false });
   await buildBrowserSessionState({ check: false });
+  await buildThreadListFilter({ check: false });
+  await buildComposerCommand({ check: false });
   console.log(`Generated ${path.relative(repoRoot, outputPath)} from src/ui/Shell.jsx`);
 }

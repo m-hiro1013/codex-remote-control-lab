@@ -95,7 +95,10 @@ Background thread-list polling suppresses repeated identical errors. A transient
 
 ## UI Surface
 
-- recent thread list and thread resume
+- recent thread list with a default 14-day filter, search across older history, and thread resume
+- open-session swipe targets limited to currently live bridge sessions
+- read-only Goal panel fed by app-server goal notifications, with a prompt-based Goal setup CTA
+- composer `/` command suggestions and `$` shell commands routed to the terminal PTY
 - phone control of the desktop Codex session
 - PC/mobile continuity through a shared bridge-managed thread
 - model, plugin, config, auth, and automation lookups

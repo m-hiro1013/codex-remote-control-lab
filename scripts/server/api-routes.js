@@ -42,10 +42,6 @@ function createApiRoutes(deps = {}) {
     workdir,
   } = deps;
 
-  function isGoalUnsupported(error) {
-    return /thread_goals|not found|unknown method|experimental|unsupported/i.test(String(error?.message || error || ""));
-  }
-
   async function handleApiRequest(req, res, url, phoneToken) {
     const method = req.method || "GET";
     if (url.pathname === "/api/info") {
@@ -250,39 +246,11 @@ function createApiRoutes(deps = {}) {
           sendJson(res, 400, { error: "thread is required" });
           return true;
         }
-        try {
-          const result = await appServerRequest("thread/goal/get", { threadId });
-          sendJson(res, 200, { supported: true, goal: result.goal || null });
-        } catch (error) {
-          if (isGoalUnsupported(error)) sendJson(res, 200, { supported: false, goal: null, error: "goals unsupported" });
-          else sendJson(res, 500, { error: error.message });
-        }
+        const liveBridge = typeof findLiveBridge === "function" ? findLiveBridge(bridges, threadId) : null;
+        sendJson(res, 200, { supported: true, readOnly: true, goal: liveBridge?.goal || null });
         return true;
       }
-      if (method === "POST") {
-        try {
-          const body = await readJsonBody(req);
-          const threadId = String(body.thread || body.threadId || "");
-          if (!threadId) {
-            sendJson(res, 400, { error: "thread is required" });
-            return true;
-          }
-          const goal = String(body.goal || "").trim();
-          try {
-            if (goal) await appServerRequest("thread/goal/set", { threadId, goal });
-            else await appServerRequest("thread/goal/clear", { threadId });
-            const result = await appServerRequest("thread/goal/get", { threadId });
-            sendJson(res, 200, { supported: true, goal: result.goal || null });
-          } catch (error) {
-            if (isGoalUnsupported(error)) sendJson(res, 200, { supported: false, goal: null, error: "goals unsupported" });
-            else sendJson(res, 500, { error: error.message });
-          }
-        } catch (error) {
-          sendJson(res, 400, { error: error.message });
-        }
-        return true;
-      }
-      sendJson(res, 405, { error: "method not allowed" });
+      sendJson(res, 405, { supported: true, readOnly: true, error: "goal is read-only" });
       return true;
     }
     if (url.pathname === "/api/automations") {

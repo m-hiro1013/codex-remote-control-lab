@@ -89,9 +89,54 @@ test("SharedBridge starts a thread and emits ready payload", () => {
     shared: true,
     clients: 1,
     history: [{ type: "assistant", text: "loaded history" }],
+    goal: null,
     materialized: true,
     sessionState: { status: "input_ready" },
   });
+});
+
+test("SharedBridge stores goal notifications and includes them in ready payload", () => {
+  const { SharedBridge, upstream } = createBridgeHarness();
+  const bridge = new SharedBridge(null, "new:goal");
+  bridge.threadId = "thread-goal";
+  bridge.upstreamThreadId = "thread-goal";
+  bridge.ready = true;
+  const browser = createFakeBrowser();
+  bridge.addClient(browser);
+
+  const goal = {
+    threadId: "thread-goal",
+    objective: "ship the mobile review surface",
+    status: "in_progress",
+    tokensUsed: 120,
+    timeUsedSeconds: 30,
+    updatedAt: "2026-06-15T00:00:00.000Z",
+  };
+  upstream.emit("message", Buffer.from(JSON.stringify({ method: "thread/goal/updated", params: { goal } })));
+
+  assert.deepEqual(bridge.goal, goal);
+  assert.deepEqual(browser.sent.at(-1), { type: "goal", goal });
+
+  const nextBrowser = createFakeBrowser();
+  bridge.addClient(nextBrowser);
+  assert.equal(nextBrowser.sent.at(-1).type, "ready");
+  assert.deepEqual(nextBrowser.sent.at(-1).goal, goal);
+});
+
+test("SharedBridge clears goal notifications for the active thread", () => {
+  const { SharedBridge, upstream } = createBridgeHarness();
+  const bridge = new SharedBridge(null, "new:goal-clear");
+  bridge.threadId = "thread-goal";
+  bridge.upstreamThreadId = "thread-goal";
+  bridge.ready = true;
+  bridge.goal = { threadId: "thread-goal", objective: "old goal", status: "in_progress" };
+  const browser = createFakeBrowser();
+  bridge.addClient(browser);
+
+  upstream.emit("message", Buffer.from(JSON.stringify({ method: "thread/goal/cleared", params: { threadId: "thread-goal" } })));
+
+  assert.equal(bridge.goal, null);
+  assert.deepEqual(browser.sent.at(-1), { type: "goal", goal: null });
 });
 
 test("SharedBridge sends prompt turns and records running state", () => {

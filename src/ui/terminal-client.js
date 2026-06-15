@@ -155,6 +155,10 @@ class CodexNativeTerminal {
     return true;
   }
 
+  isOpen() {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
   ensureTerminal() {
     if (this.term) return;
     this.fit = new FitAddon();
