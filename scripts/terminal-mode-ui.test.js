@@ -65,6 +65,7 @@ test("Shell renders chat/terminal mode controls on the same remote session surfa
 
 test("browser logic attaches terminal mode to the selected Codex thread through native xterm", () => {
   const main = read("public/main.js");
+  const browserSessionState = read("scripts/browser-session-state.js");
   assert.match(main, /function ensureNativeTerminalConnected\(options = \{\}\)/);
   assert.match(main, /new window\.CodexNativeTerminal/);
   assert.match(main, /ensureNativeTerminalConnected\(\{ focus: activeMainMode === "terminal" \}\)/);
@@ -89,17 +90,21 @@ test("browser logic attaches terminal mode to the selected Codex thread through 
   assert.match(main, /const openSessionsStorageKey = "codexRemoteOpenSessions"/);
   assert.match(main, /const activeSessionStorageKey = "codexRemoteLastActiveSessionKey"/);
   assert.match(main, /const closedThreadIdsStorageKey = "codexRemoteClosedThreadIds"/);
-  assert.match(main, /function rememberClosedThread\(threadId\)/);
-  assert.match(main, /function forgetClosedThread\(threadId\)/);
+  assert.match(main, /const sessionStore = sessionStateRuntime\.createSessionStore/);
   assert.match(main, /function addOrUpdateOpenSession\(input\)/);
-  assert.match(main, /forgetClosedThread\(session\.threadId\)/);
+  assert.match(main, /sessionStore\.addOrUpdateOpenSession/);
+  assert.match(browserSessionState, /function rememberClosedThread\(threadId\)/);
+  assert.match(browserSessionState, /function forgetClosedThread\(threadId\)/);
+  assert.match(browserSessionState, /forgetClosedThread\(session\.threadId\)/);
   assert.match(main, /apiGet\("\/api\/live-threads"\)/);
   assert.doesNotMatch(main, /apiGet\("\/api\/threads"\)/);
   assert.match(main, /稼働中ではないthreadの履歴表示を停止しました/);
   assert.match(main, /function syncOpenSessionsFromThreads\(\)/);
-  assert.match(main, /closedThreadIds\.has\(thread\.id\)/);
-  assert.match(main, /liveIds\.has\(session\.threadId\)/);
-  assert.match(main, /rememberClosedThread\(removed\?\.threadId\)/);
+  assert.match(main, /sessionStore\.syncFromLiveThreads/);
+  assert.match(main, /if \(!threadId\) \{[\s\S]*sessionStore\.clearSelectedThread\(\)/);
+  assert.match(browserSessionState, /closedThreadIds\.has\(thread\.id\)/);
+  assert.match(browserSessionState, /liveIds\.has\(session\.threadId\)/);
+  assert.match(browserSessionState, /rememberClosedThread\(removed\?\.threadId\)/);
   assert.match(main, /function switchOpenSessionByOffset\(offset\)/);
   assert.match(main, /function bindSessionSwipe\(\)/);
   assert.match(main, /const label = total > 1 \? `\$\{current\}\/\$\{total\} 稼働中` : total === 1 \? "1件のみ" : "稼働なし"/);
@@ -332,7 +337,7 @@ test("browser recovers from stale no-rollout thread ids", () => {
   assert.match(main, /no rollout found for thread id/);
   assert.match(main, /function recoverMissingSelectedThread\(message\)/);
   assert.match(main, /localStorage\.removeItem\("codexPhoneLastThread"\)/);
-  assert.match(main, /selectedThread = ""/);
+  assert.match(main, /sessionStore\.clearSelectedThread\(\)/);
   assert.match(main, /connect\(\);/);
   assert.match(main, /if \(recoverMissingSelectedThread\(message\)\) return;/);
   assert.match(main, /if \(recoverMissingSelectedThread\(msg\.text\)\) return;/);

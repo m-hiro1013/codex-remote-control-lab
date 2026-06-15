@@ -203,11 +203,11 @@ const resumeSessionStorageKey = "codexRemoteResumeSession";
 const cwdHistoryStorageKey = "codexRemoteCwdHistory";
 const closedThreadIdsStorageKey = "codexRemoteClosedThreadIds";
 const maxCwdHistory = 8;
-let openSessions = readOpenSessions();
-let activeSessionKey = localStorage.getItem(activeSessionStorageKey) || "";
-let resumeCandidateSession = readResumeSession();
+let openSessions = [];
+let activeSessionKey = "";
+let resumeCandidateSession = null;
 let cwdHistory = readCwdHistory();
-let closedThreadIds = readClosedThreadIds();
+let closedThreadIds = new Set();
 let sessionCreateCwd = localStorage.getItem("codexRemoteLastCwd") || "";
 let sessionBrowserCurrentPath = sessionCreateCwd || "";
 let sessionBrowserParentPath = "";
@@ -221,6 +221,19 @@ let accessMode = {
   approvalPolicy: "never",
   sandboxMode: "danger-full-access",
 };
+const sessionStateRuntime = window.CodexSessionBrowserState;
+if (!sessionStateRuntime?.createSessionStore) {
+  throw new Error("browser-session-state.js is missing. Run pnpm build:ui.");
+}
+const sessionStore = sessionStateRuntime.createSessionStore({
+  selectedThread,
+  currentWorkdir,
+  openSessions: readOpenSessions(),
+  activeSessionKey: localStorage.getItem(activeSessionStorageKey) || "",
+  resumeCandidateSession: readResumeSession(),
+  closedThreadIds: readClosedThreadIds(),
+});
+syncSessionState(sessionStore.snapshot());
 let pendingFiles = [];
 
 const panelWidthConfig = {
@@ -253,44 +266,21 @@ function setRunState(state, label) {
 }
 
 function adoptCanonicalSessionState(state) {
-  if (!state?.sessionId || !state?.cwd) return;
-  const active = openSessions.find((session) => session.key === activeSessionKey);
-  const currentCwd = currentWorkdir || active?.cwd || resumeCandidateSession?.cwd || "";
-  const sameThread = selectedThread === state.sessionId;
-  if (!sameThread && (!currentCwd || comparableSessionPath(currentCwd) !== comparableSessionPath(state.cwd))) return;
-  openSessions = openSessions.filter((session) => {
-    if (!session?.threadId || !session.cwd) return true;
-    const sameSessionCwd = comparableSessionPath(session.cwd) === comparableSessionPath(state.cwd);
-    if (session.threadId === state.sessionId) return sameSessionCwd;
-    return !sameSessionCwd;
-  });
-  selectedThread = state.sessionId;
-  currentWorkdir = state.cwd;
-  const session = addOrUpdateOpenSession({
-    threadId: state.sessionId,
-    cwd: state.cwd,
-    title: basenameForPath(state.cwd) || state.sessionId,
-    status: state.status || "input_ready",
-  });
-  activeSessionKey = session?.key || activeSessionKey;
+  syncSessionState(sessionStore.adoptRemoteState(state));
+  persistSessionState();
   updateUrlThread();
   syncHeaderCwd();
   syncTerminalSessionMeta();
+  renderSessionChrome();
 }
 
 function applyRemoteSessionState(state) {
   if (!state || typeof state !== "object") return;
   adoptCanonicalSessionState(state);
   remoteSessionState = state;
-  if (activeSessionKey) {
-    const active = openSessions.find((session) => session.key === activeSessionKey);
-    if (active) {
-      active.status = state.status || active.status;
-      active.updatedAt = Date.now();
-      persistOpenSessions();
-      renderSessionChrome();
-    }
-  }
+  syncSessionState(sessionStore.updateActiveSessionStatus(state.status));
+  persistSessionState();
+  renderSessionChrome();
   syncTerminalSessionMeta();
   if (state.status === "running") {
     liveTurnActive = true;
@@ -414,53 +404,12 @@ function readClosedThreadIds() {
   }
 }
 
-function persistClosedThreadIds() {
-  localStorage.setItem(closedThreadIdsStorageKey, JSON.stringify(Array.from(closedThreadIds)));
-}
-
-function rememberClosedThread(threadId) {
-  const id = String(threadId || "");
-  if (!id) return;
-  closedThreadIds.add(id);
-  persistClosedThreadIds();
-}
-
-function forgetClosedThread(threadId) {
-  const id = String(threadId || "");
-  if (!id || !closedThreadIds.delete(id)) return;
-  persistClosedThreadIds();
-}
-
 function sessionKeyFor(threadId = "", cwd = "") {
-  return `${threadId || "new"}::${cwd || ""}`;
+  return sessionStateRuntime.sessionKeyFor(threadId, cwd);
 }
 
 function normalizeOpenSession(item) {
-  if (!item || typeof item !== "object") return null;
-  const threadId = String(item.threadId || "");
-  const cwd = String(item.cwd || "");
-  if (!threadId && !cwd) return null;
-  return {
-    key: String(item.key || sessionKeyFor(threadId, cwd)),
-    threadId,
-    cwd,
-    title: String(item.title || threadId || cwd || "New session"),
-    status: String(item.status || "ready"),
-    updatedAt: Number(item.updatedAt || Date.now()),
-  };
-}
-
-function persistOpenSessions() {
-  localStorage.setItem(openSessionsStorageKey, JSON.stringify(openSessions));
-  if (activeSessionKey) localStorage.setItem(activeSessionStorageKey, activeSessionKey);
-  else localStorage.removeItem(activeSessionStorageKey);
-}
-
-function persistResumeSession(session) {
-  const normalized = normalizeOpenSession(session);
-  if (!normalized?.threadId) return;
-  resumeCandidateSession = normalized;
-  localStorage.setItem(resumeSessionStorageKey, JSON.stringify(normalized));
+  return sessionStateRuntime.normalizeOpenSession(item);
 }
 
 function pushCwdHistory(cwd) {
@@ -497,12 +446,6 @@ function displayPath(value) {
   return text === home ? "~" : `~${text.slice(home.length)}`;
 }
 
-function comparableSessionPath(value) {
-  const text = String(value || "").trim();
-  if (!text) return "";
-  return text === "/" ? "/" : text.replace(/\/+$/, "");
-}
-
 function defaultDeveloperPath() {
   const candidates = [sessionCreateCwd, sessionBrowserCurrentPath, currentWorkdir, ...cwdHistory].filter(Boolean);
   for (const candidate of candidates) {
@@ -514,110 +457,46 @@ function defaultDeveloperPath() {
   return "";
 }
 
+function syncSessionState(snapshot) {
+  selectedThread = snapshot.selectedThread;
+  currentWorkdir = snapshot.currentWorkdir;
+  openSessions = snapshot.openSessions;
+  activeSessionKey = snapshot.activeSessionKey;
+  resumeCandidateSession = snapshot.resumeCandidateSession;
+  closedThreadIds = snapshot.closedThreadIds;
+}
+
+function persistSessionState() {
+  localStorage.setItem(openSessionsStorageKey, JSON.stringify(openSessions));
+  if (activeSessionKey) localStorage.setItem(activeSessionStorageKey, activeSessionKey);
+  else localStorage.removeItem(activeSessionStorageKey);
+  if (resumeCandidateSession?.threadId) localStorage.setItem(resumeSessionStorageKey, JSON.stringify(resumeCandidateSession));
+  else localStorage.removeItem(resumeSessionStorageKey);
+  localStorage.setItem(closedThreadIdsStorageKey, JSON.stringify(Array.from(closedThreadIds)));
+}
+
 function addOrUpdateOpenSession(input) {
-  const session = normalizeOpenSession({
-    ...input,
-    key: sessionKeyFor(input.threadId, input.cwd),
-    title: input.title || basenameForPath(input.cwd) || input.threadId,
-    updatedAt: Date.now(),
-  });
-  if (!session) return null;
-  forgetClosedThread(session.threadId);
-  const index = openSessions.findIndex((item) => item.key === session.key);
-  if (index >= 0) openSessions[index] = { ...openSessions[index], ...session };
-  else openSessions.push(session);
-  activeSessionKey = session.key;
-  persistResumeSession(session);
-  persistOpenSessions();
+  syncSessionState(
+    sessionStore.addOrUpdateOpenSession({
+      ...input,
+      title: input.title || basenameForPath(input.cwd) || input.threadId,
+    }),
+  );
+  persistSessionState();
   renderSessionChrome();
-  return session;
+  return openSessions.find((session) => session.key === activeSessionKey) || null;
 }
 
 function syncOpenSessionsFromThreads() {
-  const liveIds = new Set(threadCache.map((thread) => thread.id).filter(Boolean));
-  const previousActive =
-    openSessions.find((session) => session.key === activeSessionKey && session.threadId) || resumeCandidateSession || readResumeSession();
-  const known = new Map(openSessions.map((item) => [item.threadId, item]));
-  let currentWorkdirChanged = false;
-  for (const thread of threadCache) {
-    if (!thread.id) continue;
-    if (closedThreadIds.has(thread.id) && thread.id !== selectedThread) continue;
-    const existing = known.get(thread.id);
-    if (existing) {
-      const previousKey = existing.key;
-      existing.cwd = thread.cwd || existing.cwd;
-      existing.key = sessionKeyFor(existing.threadId, existing.cwd);
-      if (activeSessionKey === previousKey) activeSessionKey = existing.key;
-      existing.title = titleForThread(thread);
-      existing.status = thread.status || thread.sessionState?.status || existing.status || "ready";
-      existing.updatedAt = thread.updatedAt || thread.createdAt || Date.now();
-      if (thread.id === selectedThread && thread.cwd && currentWorkdir !== thread.cwd) {
-        currentWorkdir = thread.cwd;
-        currentWorkdirChanged = true;
-      }
-      continue;
-    }
-    openSessions.push(
-      normalizeOpenSession({
-        threadId: thread.id,
-        cwd: thread.cwd || "",
-        title: titleForThread(thread),
-        status: thread.status || thread.sessionState?.status || "ready",
-        updatedAt: thread.updatedAt || thread.createdAt || Date.now(),
-      }),
-    );
-  }
-  openSessions = openSessions
-    .filter((session) => session && (!session.threadId || (liveIds.has(session.threadId) && !closedThreadIds.has(session.threadId))))
-    .sort((a, b) => a.updatedAt - b.updatedAt);
-  if (previousActive?.threadId && !liveIds.has(previousActive.threadId)) persistResumeSession(previousActive);
-  if (selectedThread && !liveIds.has(selectedThread)) {
-    const migrationCwd = currentWorkdir || previousActive?.cwd || resumeCandidateSession?.cwd || "";
-    const migratedThreads = threadCache.filter((thread) => {
-      if (!thread?.id || !thread?.cwd) return false;
-      return comparableSessionPath(thread.cwd) === comparableSessionPath(migrationCwd);
-    });
-    if (migratedThreads.length === 1) {
-      selectedThread = migratedThreads[0].id;
-      const migratedSession = openSessions.find((session) => session.threadId === selectedThread);
-      if (migratedSession) activeSessionKey = migratedSession.key;
-      if (migratedThreads[0].cwd && currentWorkdir !== migratedThreads[0].cwd) {
-        currentWorkdir = migratedThreads[0].cwd;
-        currentWorkdirChanged = true;
-      }
-      persistResumeSession(
-        migratedSession || {
-          threadId: selectedThread,
-          cwd: migratedThreads[0].cwd || migrationCwd,
-          title: titleForThread(migratedThreads[0]),
-          status: migratedThreads[0].status || migratedThreads[0].sessionState?.status || "ready",
-        },
-      );
-      updateUrlThread();
-      threadTitle.textContent = titleForThread(migratedThreads[0]);
-      syncTerminalSessionMeta();
-    } else {
-      persistResumeSession({
-        threadId: selectedThread,
-        cwd: migrationCwd,
-        title: previousActive?.title || selectedThread,
-        status: "resume_pending",
-      });
-    }
-  }
-  if (currentWorkdirChanged) {
-    syncHeaderCwd();
-    syncTerminalSessionMeta();
-  }
-  if (!activeSessionKey && openSessions.length) activeSessionKey = openSessions[0].key;
-  if (
-    activeSessionKey &&
-    !openSessions.some((session) => session.key === activeSessionKey) &&
-    resumeCandidateSession?.key !== activeSessionKey
-  ) {
-    activeSessionKey = "";
-  }
-  persistOpenSessions();
+  syncSessionState(
+    sessionStore.syncFromLiveThreads(threadCache, {
+      titleForThread,
+    }),
+  );
+  persistSessionState();
+  updateUrlThread();
+  syncHeaderCwd();
+  syncTerminalSessionMeta();
   renderSessionChrome();
 }
 
@@ -626,12 +505,10 @@ function activeSessionIndex() {
 }
 
 function switchToOpenSession(sessionKey) {
-  const session = openSessions.find((item) => item.key === sessionKey);
-  if (!session) return false;
-  activeSessionKey = session.key;
-  persistOpenSessions();
-  selectedThread = session.threadId || "";
-  currentWorkdir = session.cwd || currentWorkdir;
+  const previousKey = activeSessionKey;
+  syncSessionState(sessionStore.activateSession(sessionKey));
+  if (previousKey === activeSessionKey) return false;
+  persistSessionState();
   updateUrlThread();
   renderSessionChrome();
   connect();
@@ -647,20 +524,12 @@ function switchOpenSessionByOffset(offset) {
 }
 
 function removeOpenSession(sessionKey) {
-  const index = openSessions.findIndex((session) => session.key === sessionKey);
-  if (index < 0) return;
-  const [removed] = openSessions.splice(index, 1);
-  rememberClosedThread(removed?.threadId);
-  if (removed?.threadId === selectedThread) {
-    const neighbor = openSessions[index] || openSessions[Math.max(0, index - 1)] || null;
-    activeSessionKey = neighbor?.key || "";
-    selectedThread = neighbor?.threadId || "";
-    currentWorkdir = neighbor?.cwd || currentWorkdir;
-    updateUrlThread();
-    if (neighbor) connect();
-    else renderHistory([]);
-  }
-  persistOpenSessions();
+  const previousThread = selectedThread;
+  syncSessionState(sessionStore.removeSession(sessionKey));
+  if (previousThread === selectedThread && !selectedThread) renderHistory([]);
+  persistSessionState();
+  updateUrlThread();
+  if (previousThread !== selectedThread && selectedThread) connect();
   renderSessionChrome();
   renderOpenSessionList();
 }
@@ -744,18 +613,11 @@ function closeSessionSwitcher() {
 }
 
 function restoreActiveSessionFromStorage() {
-  if (selectedThread) return true;
-  const liveIds = new Set(threadCache.map((thread) => thread.id).filter(Boolean));
-  const saved =
-    openSessions.find((session) => session.key === activeSessionKey && liveIds.has(session.threadId)) ||
-    openSessions.find((session) => liveIds.has(session.threadId)) ||
-    resumeCandidateSession ||
-    readResumeSession() ||
-    null;
-  if (!saved) return false;
-  activeSessionKey = saved.key;
-  selectedThread = saved.threadId || "";
-  currentWorkdir = saved.cwd || currentWorkdir;
+  const previousThread = selectedThread;
+  syncSessionState(sessionStore.restoreFromLiveThreads(threadCache));
+  if (!selectedThread) return false;
+  if (previousThread === selectedThread) return true;
+  persistSessionState();
   updateUrlThread();
   renderSessionChrome();
   return Boolean(selectedThread);
@@ -1558,12 +1420,14 @@ function isMissingThreadError(message) {
 }
 
 function clearSelectedThread({ reason = "" } = {}) {
-  const previousThread = selectedThread;
-  selectedThread = "";
+  const result = sessionStore.clearSelectedThread();
+  syncSessionState(result);
+  const previousThread = result.previousThread;
   lastThreadRefreshError = "";
   liveTurnActive = false;
   selectedThreadRefreshActive = false;
   localStorage.removeItem("codexPhoneLastThread");
+  persistSessionState();
   updateUrlThread();
   renderHistory([]);
   renderThreadList();
@@ -1587,7 +1451,15 @@ function recoverMissingSelectedThread(message) {
 
 function syncReadyThread(threadId, options = {}) {
   if (!threadId) return;
-  selectedThread = threadId;
+  syncSessionState(
+    sessionStore.syncReadyThread({
+      threadId,
+      cwd: currentWorkdir,
+      title: basenameForPath(currentWorkdir),
+      status: remoteSessionState?.status || "ready",
+    }),
+  );
+  persistSessionState();
   updateUrlThread();
   const existingIndex = threadCache.findIndex((thread) => thread.id === threadId);
   const liveThread = {
@@ -1603,37 +1475,48 @@ function syncReadyThread(threadId, options = {}) {
   else threadCache.unshift(liveThread);
   const selected = threadCache.find((thread) => thread.id === selectedThread);
   threadTitle.textContent = selected ? titleForThread(selected) : selectedThread;
-  addOrUpdateOpenSession({
-    threadId,
-    cwd: currentWorkdir,
-    title: selected ? titleForThread(selected) : basenameForPath(currentWorkdir),
-    status: remoteSessionState?.status || "ready",
-  });
+  if (selected) {
+    syncSessionState(
+      sessionStore.syncReadyThread({
+        threadId,
+        cwd: currentWorkdir,
+        title: titleForThread(selected),
+        status: remoteSessionState?.status || "ready",
+      }),
+    );
+    persistSessionState();
+  }
   renderThreadList();
+  renderSessionChrome();
   syncTerminalSessionMeta();
   if (options.prewarmTerminal) ensureNativeTerminalConnected({ focus: activeMainMode === "terminal" });
 }
 
 function selectThread(threadId) {
-  selectedThread = threadId;
-  const selected = threadCache.find((thread) => thread.id === selectedThread);
-  if (selected) {
-    const session = addOrUpdateOpenSession({
-      threadId: selected.id,
-      cwd: selected.cwd || "",
-      title: titleForThread(selected),
-      status: "ready",
-    });
-    activeSessionKey = session?.key || activeSessionKey;
+  if (!threadId) {
+    const result = sessionStore.clearSelectedThread();
+    syncSessionState(result);
+    persistSessionState();
+    updateUrlThread();
+    renderThreadList();
+    renderSessionChrome();
+    closeSidebar();
+    connect();
+    return;
   }
+  const nextThread = threadCache.find((thread) => thread.id === threadId);
+  syncSessionState(sessionStore.selectLiveThread(nextThread, { titleForThread }));
+  persistSessionState();
   updateUrlThread();
   renderThreadList();
+  renderSessionChrome();
   closeSidebar();
   connect();
 }
 
 function setCurrentWorkdir(workdir) {
-  currentWorkdir = workdir || currentWorkdir || "";
+  syncSessionState(sessionStore.setCurrentWorkdir(workdir || currentWorkdir || ""));
+  persistSessionState();
   applyPathbarColor();
   syncHeaderCwd();
   syncTerminalSessionMeta();

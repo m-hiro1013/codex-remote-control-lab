@@ -17,7 +17,7 @@ const {
 } = require("./bridge-state");
 const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
 const { bridgeUrls, notifyBridgeUrls } = require("./phone-notify");
-const { isSessionBusy, mergeSessionState, normalizeHookState } = require("./session-state");
+const { isSessionBusy, normalizeHookState } = require("./session-state");
 const { findLiveBridge, liveThreadSummaries, readThreadSnapshot } = require("./thread-read");
 const { createApiRoutes } = require("./server/api-routes");
 const { createBridgeRegistry } = require("./server/bridge-registry");
@@ -28,14 +28,8 @@ const { createHttpSurface } = require("./server/http-surface");
 const { createPhoneHttpServer } = require("./server/phone-server");
 const { sandboxPolicyForMode } = require("./server/sandbox-policy");
 const { createSharedBridgeClass } = require("./server/shared-bridge");
+const { createSessionService } = require("./server/session-service");
 const { createStartupAnnouncement } = require("./server/startup-announcement");
-const {
-  broadcastSessionStateToTargets,
-  drainReadyBridgeQueues,
-  migrateBridgeThreadOwnership,
-  sessionStateFor: findSessionStateFor,
-  sessionStateKey,
-} = require("./server/session-ownership");
 const { createTerminalPtyRuntime } = require("./server/terminal-pty-runtime");
 const {
   capHistory: capThreadHistory,
@@ -106,7 +100,6 @@ const uploadDir = path.join(root, ".uploads");
 const bridges = new Map();
 const threadAliases = new Map();
 const terminalSessions = new Map();
-const sessionStates = new Map();
 const retainedSessionConfig = retentionConfigFromEnv(process.env);
 const historyLimit = 80;
 const imageExtensions = new Map([
@@ -181,6 +174,14 @@ const {
   tokenRequired,
 });
 
+const sessionService = createSessionService({
+  bridges,
+  defaultCwd: workdir,
+  findLiveBridge: (threadId) => findLiveBridge(bridges, threadId),
+  terminalSessions,
+  threadAliases,
+});
+
 const { handleApiRequest } = createApiRoutes({
   appServerRequest,
   authMode,
@@ -211,12 +212,12 @@ const { handleApiRequest } = createApiRoutes({
   safeOpenPath,
   safeUploadPath,
   sendJson,
-  sessionStateFor,
-  sessionStates,
+  sessionStateFor: sessionService.get,
+  sessionStates: sessionService.list,
   shouldStartCodexServer,
   tokenRequired,
   uiPort,
-  updateSessionState,
+  updateSessionState: sessionService.update,
   workdir,
 });
 
@@ -232,7 +233,7 @@ const { bindTerminalSocket } = createTerminalPtyRuntime({
   pty,
   remoteHookEnv,
   retainedSessionConfig,
-  sessionStateFor,
+  sessionStateFor: sessionService.get,
   shouldDisposeIdleBridge,
   shouldScheduleIdleCleanup,
   terminalSessions,
@@ -304,34 +305,6 @@ function remoteHookEnv(phoneToken) {
   };
 }
 
-function sessionStateFor(threadId, cwd = "") {
-  return findSessionStateFor({ sessionStates, threadId, cwd, defaultCwd: workdir });
-}
-
-function migrateCurrentBridgeThreadOwnership(state) {
-  return migrateBridgeThreadOwnership({
-    state,
-    bridges,
-    threadAliases,
-    findLiveBridge,
-    defaultCwd: workdir,
-  });
-}
-
-function updateSessionState(statePatch) {
-  const key = sessionStateKey({ sessionId: statePatch.sessionId, cwd: statePatch.cwd, defaultCwd: workdir });
-  const previous = sessionStates.get(key);
-  const state = mergeSessionState(previous, statePatch);
-  sessionStates.set(key, state);
-  if (state.cwd) sessionStates.set(sessionStateKey({ cwd: state.cwd, defaultCwd: workdir }), state);
-  migrateCurrentBridgeThreadOwnership(state);
-  broadcastSessionStateToTargets({ state, bridges, terminalSessions });
-  if (!isSessionBusy(state)) {
-    drainReadyBridgeQueues({ state, bridges });
-  }
-  return state;
-}
-
 function summarizeItem(item) {
   return summarizeThreadItem(item, { root, uploadDir, isImagePath });
 }
@@ -362,13 +335,13 @@ const SharedBridge = createSharedBridgeClass({
   runHistorySync,
   sandboxPolicyForMode,
   saveDataUrlAttachment,
-  sessionStateFor,
+  sessionStateFor: sessionService.get,
   shouldDisposeIdleBridge,
   shouldPromoteBridgeKey,
   shouldScheduleIdleCleanup,
   summarizeItem,
   summarizeLiveItem,
-  updateSessionState,
+  updateSessionState: sessionService.update,
   webSocketOpenState: WebSocket.OPEN,
 });
 

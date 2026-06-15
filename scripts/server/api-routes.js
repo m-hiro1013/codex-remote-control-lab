@@ -155,7 +155,7 @@ function createApiRoutes(deps = {}) {
           materialized: bridge.materialized,
           sessionState: sessionStateFor(bridge.threadId, bridge.cwd),
         })),
-        sessionStates: Array.from(sessionStates.values()),
+        sessionStates: typeof sessionStates === "function" ? sessionStates() : Array.from(sessionStates.values()),
       });
       return true;
     }
