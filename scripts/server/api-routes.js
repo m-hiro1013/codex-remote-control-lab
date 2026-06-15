@@ -35,13 +35,19 @@ function createApiRoutes(deps = {}) {
     sessionStateFor,
     sessionStates,
     shouldStartCodexServer,
+    summarizeHistoryThreads,
     tokenRequired,
     uiPort,
     updateSessionState,
     workdir,
   } = deps;
 
+  function isGoalUnsupported(error) {
+    return /thread_goals|not found|unknown method|experimental|unsupported/i.test(String(error?.message || error || ""));
+  }
+
   async function handleApiRequest(req, res, url, phoneToken) {
+    const method = req.method || "GET";
     if (url.pathname === "/api/info") {
       sendJson(res, 200, {
         model,
@@ -55,7 +61,7 @@ function createApiRoutes(deps = {}) {
       return true;
     }
     if (url.pathname === "/api/codex-hook") {
-      if (req.method !== "POST") {
+      if (method !== "POST") {
         sendJson(res, 405, { error: "method not allowed" });
         return true;
       }
@@ -75,14 +81,48 @@ function createApiRoutes(deps = {}) {
     if (url.pathname === "/api/threads") {
       if (!requireToken(url, phoneToken, res)) return true;
       try {
+        const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit") || 100)));
+        const cursor = url.searchParams.get("cursor") || null;
+        const archived = url.searchParams.get("archived") === "1" || url.searchParams.get("archived") === "true";
         const result = await appServerRequest("thread/list", {
-          limit: 30,
+          limit,
+          cursor,
           sortKey: "updated_at",
           sortDirection: "desc",
-          archived: false,
+          archived,
           useStateDbOnly: false,
         });
-        sendJson(res, 200, result);
+        sendJson(res, 200, {
+          ...result,
+          data: typeof summarizeHistoryThreads === "function" ? summarizeHistoryThreads(result) : result.data || result.threads || [],
+          nextCursor: result.nextCursor || result.next_cursor || result.cursor || null,
+        });
+      } catch (error) {
+        sendJson(res, 500, { error: error.message });
+      }
+      return true;
+    }
+    if (url.pathname === "/api/thread-name" || url.pathname === "/api/thread-archive") {
+      if (!requireToken(url, phoneToken, res)) return true;
+      if (method !== "POST") {
+        sendJson(res, 405, { error: "method not allowed" });
+        return true;
+      }
+      try {
+        const body = await readJsonBody(req);
+        const threadId = String(body.thread || body.threadId || "");
+        if (!threadId) {
+          sendJson(res, 400, { error: "thread is required" });
+          return true;
+        }
+        if (url.pathname === "/api/thread-name") {
+          await appServerRequest("thread/name/set", { threadId, name: String(body.name || "") });
+          sendJson(res, 200, { ok: true });
+          return true;
+        }
+        const archived = body.archived !== false;
+        await appServerRequest(archived ? "thread/archive" : "thread/unarchive", { threadId });
+        sendJson(res, 200, { ok: true, archived });
       } catch (error) {
         sendJson(res, 500, { error: error.message });
       }
@@ -200,6 +240,49 @@ function createApiRoutes(deps = {}) {
       } catch (error) {
         sendJson(res, 500, { error: error.message });
       }
+      return true;
+    }
+    if (url.pathname === "/api/goal") {
+      if (!requireToken(url, phoneToken, res)) return true;
+      if (method === "GET") {
+        const threadId = url.searchParams.get("thread");
+        if (!threadId) {
+          sendJson(res, 400, { error: "thread is required" });
+          return true;
+        }
+        try {
+          const result = await appServerRequest("thread/goal/get", { threadId });
+          sendJson(res, 200, { supported: true, goal: result.goal || null });
+        } catch (error) {
+          if (isGoalUnsupported(error)) sendJson(res, 200, { supported: false, goal: null, error: "goals unsupported" });
+          else sendJson(res, 500, { error: error.message });
+        }
+        return true;
+      }
+      if (method === "POST") {
+        try {
+          const body = await readJsonBody(req);
+          const threadId = String(body.thread || body.threadId || "");
+          if (!threadId) {
+            sendJson(res, 400, { error: "thread is required" });
+            return true;
+          }
+          const goal = String(body.goal || "").trim();
+          try {
+            if (goal) await appServerRequest("thread/goal/set", { threadId, goal });
+            else await appServerRequest("thread/goal/clear", { threadId });
+            const result = await appServerRequest("thread/goal/get", { threadId });
+            sendJson(res, 200, { supported: true, goal: result.goal || null });
+          } catch (error) {
+            if (isGoalUnsupported(error)) sendJson(res, 200, { supported: false, goal: null, error: "goals unsupported" });
+            else sendJson(res, 500, { error: error.message });
+          }
+        } catch (error) {
+          sendJson(res, 400, { error: error.message });
+        }
+        return true;
+      }
+      sendJson(res, 405, { error: "method not allowed" });
       return true;
     }
     if (url.pathname === "/api/automations") {

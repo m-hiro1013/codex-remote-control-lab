@@ -144,3 +144,83 @@ test("handleApiRequest applies hook token and updates session state", async () =
   assert.deepEqual(seen, [{ session_id: "thread-a", event: "Stop" }]);
   assert.deepEqual(res.json(), { ok: true, state: { session_id: "thread-a", event: "Stop", stored: true } });
 });
+
+test("handleApiRequest lists normalized history threads with limit and cursor", async () => {
+  const calls = [];
+  const { handleApiRequest } = createApiRoutes(baseDeps({
+    appServerRequest: async (method, params) => {
+      calls.push({ method, params });
+      return {
+        threads: [{ id: "thread-a", cwd: "/repo", preview: "hello", updatedAt: 10 }],
+        nextCursor: "next-page",
+      };
+    },
+    summarizeHistoryThreads: (result) => result.threads.map((thread) => ({ ...thread, source: "history", status: "idle" })),
+  }));
+  const res = new CaptureResponse();
+
+  const handled = await handleApiRequest(
+    Readable.from([]),
+    res,
+    new URL("http://local.test/api/threads?token=secret&limit=150&cursor=abc"),
+    "secret",
+  );
+
+  assert.equal(handled, true);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(calls, [
+    {
+      method: "thread/list",
+      params: {
+        limit: 150,
+        cursor: "abc",
+        sortKey: "updated_at",
+        sortDirection: "desc",
+        archived: false,
+        useStateDbOnly: false,
+      },
+    },
+  ]);
+  assert.deepEqual(res.json(), {
+    threads: [{ id: "thread-a", cwd: "/repo", preview: "hello", updatedAt: 10 }],
+    nextCursor: "next-page",
+    data: [{ id: "thread-a", cwd: "/repo", preview: "hello", updatedAt: 10, source: "history", status: "idle" }],
+  });
+});
+
+test("handleApiRequest reads and writes thread goals", async () => {
+  const calls = [];
+  const { handleApiRequest } = createApiRoutes(baseDeps({
+    appServerRequest: async (method, params) => {
+      calls.push({ method, params });
+      if (method === "thread/goal/get") return { goal: calls.some((call) => call.method === "thread/goal/set") ? "ship it" : null };
+      return {};
+    },
+  }));
+  const getRes = new CaptureResponse();
+
+  await handleApiRequest(Readable.from([]), getRes, new URL("http://local.test/api/goal?token=secret&thread=thread-a"), "secret");
+  assert.deepEqual(getRes.json(), { supported: true, goal: null });
+
+  const postRes = new CaptureResponse();
+  const req = Readable.from([JSON.stringify({ thread: "thread-a", goal: "ship it" })]);
+  req.method = "POST";
+  await handleApiRequest(req, postRes, new URL("http://local.test/api/goal?token=secret"), "secret");
+
+  assert.deepEqual(calls.map((call) => call.method), ["thread/goal/get", "thread/goal/set", "thread/goal/get"]);
+  assert.deepEqual(postRes.json(), { supported: true, goal: "ship it" });
+});
+
+test("handleApiRequest reports unsupported goals without failing the UI", async () => {
+  const { handleApiRequest } = createApiRoutes(baseDeps({
+    appServerRequest: async () => {
+      throw new Error("failed to read thread goal: no such table: thread_goals");
+    },
+  }));
+  const res = new CaptureResponse();
+
+  await handleApiRequest(Readable.from([]), res, new URL("http://local.test/api/goal?token=secret&thread=thread-a"), "secret");
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { supported: false, goal: null, error: "goals unsupported" });
+});

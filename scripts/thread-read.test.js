@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { findLiveBridge, liveBridgeSnapshot, liveThreadSummaries, readThreadSnapshot } = require("./thread-read");
+const { findLiveBridge, liveBridgeSnapshot, liveThreadSummaries, readThreadSnapshot, summarizeHistoryThreads } = require("./thread-read");
 
 function writeTempJsonl(records) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-thread-read-"));
@@ -111,6 +111,33 @@ test("liveThreadSummaries includes starting non-failed bridge sessions", () => {
   assert.equal(summaries[0].id, "thread-starting");
   assert.equal(summaries[0].preview, "起動中");
   assert.equal(summaries[0].status, "starting");
+});
+
+test("summarizeHistoryThreads normalizes app-server thread list rows", () => {
+  const rows = summarizeHistoryThreads({
+    threads: [
+      {
+        threadId: "thread-history",
+        workdir: "/tmp/project-a",
+        title: "Saved chat",
+        updated_at: "2026-06-01T00:00:00.000Z",
+        created_at: "2026-05-30T00:00:00.000Z",
+      },
+    ],
+  });
+
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0], {
+    id: "thread-history",
+    threadId: "thread-history",
+    cwd: "/tmp/project-a",
+    name: "Saved chat",
+    preview: "Saved chat",
+    updatedAt: Date.parse("2026-06-01T00:00:00.000Z"),
+    createdAt: Date.parse("2026-05-30T00:00:00.000Z"),
+    status: "idle",
+    source: "history",
+  });
 });
 
 test("readThreadSnapshot does not call app-server for a live bridge thread", async () => {

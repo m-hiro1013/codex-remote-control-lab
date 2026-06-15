@@ -72,3 +72,23 @@ test("session store keeps a resume candidate when the live thread is temporarily
   assert.equal(next.resumeCandidateSession?.threadId, "thread-missing");
   assert.equal(next.resumeCandidateSession?.status, "resume_pending");
 });
+
+test("session store toggles pinned threads independently from closed sessions", () => {
+  const store = createSessionStore({
+    selectedThread: "thread-a",
+    currentWorkdir: root,
+    openSessions: [{ threadId: "thread-a", cwd: root, title: "a" }],
+    activeSessionKey: `thread-a::${root}`,
+    pinnedThreadIds: ["thread-a"],
+  });
+
+  const closed = store.removeSession(`thread-a::${root}`);
+  assert.equal(closed.closedThreadIds.has("thread-a"), true);
+  assert.equal(closed.pinnedThreadIds.has("thread-a"), true);
+
+  const unpinned = store.togglePinnedThread("thread-a");
+  assert.equal(unpinned.pinnedThreadIds.has("thread-a"), false);
+
+  const pinned = store.togglePinnedThread("thread-b");
+  assert.deepEqual(Array.from(pinned.pinnedThreadIds), ["thread-b"]);
+});

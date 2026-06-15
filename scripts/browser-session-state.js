@@ -34,6 +34,10 @@ function normalizeClosedThreadIds(items) {
   return new Set();
 }
 
+function normalizePinnedThreadIds(items) {
+  return normalizeClosedThreadIds(items);
+}
+
 function cloneState(state) {
   return {
     selectedThread: state.selectedThread,
@@ -42,6 +46,7 @@ function cloneState(state) {
     activeSessionKey: state.activeSessionKey,
     resumeCandidateSession: state.resumeCandidateSession ? { ...state.resumeCandidateSession } : null,
     closedThreadIds: new Set(state.closedThreadIds),
+    pinnedThreadIds: new Set(state.pinnedThreadIds),
   };
 }
 
@@ -53,6 +58,7 @@ function createSessionStore(initial = {}) {
     activeSessionKey: String(initial.activeSessionKey || ""),
     resumeCandidateSession: normalizeOpenSession(initial.resumeCandidateSession),
     closedThreadIds: normalizeClosedThreadIds(initial.closedThreadIds),
+    pinnedThreadIds: normalizePinnedThreadIds(initial.pinnedThreadIds),
   };
 
   function snapshot() {
@@ -73,6 +79,26 @@ function createSessionStore(initial = {}) {
   function forgetClosedThread(threadId) {
     const id = String(threadId || "");
     if (id) state.closedThreadIds.delete(id);
+    return snapshot();
+  }
+
+  function pinThread(threadId) {
+    const id = String(threadId || "");
+    if (id) state.pinnedThreadIds.add(id);
+    return snapshot();
+  }
+
+  function unpinThread(threadId) {
+    const id = String(threadId || "");
+    if (id) state.pinnedThreadIds.delete(id);
+    return snapshot();
+  }
+
+  function togglePinnedThread(threadId) {
+    const id = String(threadId || "");
+    if (!id) return snapshot();
+    if (state.pinnedThreadIds.has(id)) state.pinnedThreadIds.delete(id);
+    else state.pinnedThreadIds.add(id);
     return snapshot();
   }
 
@@ -306,6 +332,7 @@ function createSessionStore(initial = {}) {
     comparableSessionPath,
     forgetClosedThread,
     normalizeOpenSession,
+    pinThread,
     rememberClosedThread,
     removeSession,
     restoreFromLiveThreads,
@@ -316,6 +343,8 @@ function createSessionStore(initial = {}) {
     syncFromLiveThreads,
     syncReadyThread,
     selectLiveThread,
+    togglePinnedThread,
+    unpinThread,
     updateActiveSessionStatus,
   };
 }
@@ -325,5 +354,6 @@ module.exports = {
   createSessionStore,
   normalizeClosedThreadIds,
   normalizeOpenSession,
+  normalizePinnedThreadIds,
   sessionKeyFor,
 };

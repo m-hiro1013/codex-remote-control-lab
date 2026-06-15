@@ -31,6 +31,7 @@ test("AppServerRpcClient initializes once before forwarding requests", async () 
 
   assert.deepEqual(result, { method: "thread/list" });
   assert.deepEqual(sent.map((message) => message.method), ["initialize", "initialized", "thread/list"]);
+  assert.deepEqual(sent[0].params.capabilities, { experimentalApi: true });
   assert.deepEqual(sent[2].params, { limit: 1 });
 });
 

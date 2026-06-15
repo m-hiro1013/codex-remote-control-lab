@@ -18,7 +18,7 @@ const {
 const { isHistorySyncEnabled, runHistorySync } = require("./history-sync");
 const { bridgeUrls, notifyBridgeUrls } = require("./phone-notify");
 const { isSessionBusy, normalizeHookState } = require("./session-state");
-const { findLiveBridge, liveThreadSummaries, readThreadSnapshot } = require("./thread-read");
+const { findLiveBridge, liveThreadSummaries, readThreadSnapshot, summarizeHistoryThreads } = require("./thread-read");
 const { createApiRoutes } = require("./server/api-routes");
 const { createBridgeRegistry } = require("./server/bridge-registry");
 const { createBrowserSocketBinder } = require("./server/browser-socket");
@@ -215,6 +215,7 @@ const { handleApiRequest } = createApiRoutes({
   sessionStateFor: sessionService.get,
   sessionStates: sessionService.list,
   shouldStartCodexServer,
+  summarizeHistoryThreads,
   tokenRequired,
   uiPort,
   updateSessionState: sessionService.update,

@@ -363,12 +363,24 @@ function createWorkspaceAccess(options = {}) {
     const fallback = working.files.length ? null : await decorateReviewFiles(await lastCommitReviewFiles());
     const source = fallback ? "latest commit" : "working tree";
     const files = fallback?.files || working.files;
+    const filesWithDiff = await Promise.all(files.map(async (file) => {
+      const args = fallback
+        ? ["show", "--format=", "--no-ext-diff", "HEAD", "--", file.path]
+        : ["diff", "HEAD", "--no-ext-diff", "--", file.path];
+      let diff = "";
+      try {
+        diff = (await runGit(args)).split(/\r?\n/).slice(0, 220).join("\n");
+      } catch {
+        diff = "";
+      }
+      return { ...file, diff };
+    }));
     const totals = fallback?.totals || working.totals;
     return {
       branch,
-      clean: files.length === 0,
+      clean: filesWithDiff.length === 0,
       source,
-      files,
+      files: filesWithDiff,
       totals,
       stat: statText.split(/\r?\n/).filter(Boolean).slice(0, 20),
     };

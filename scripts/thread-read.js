@@ -74,6 +74,58 @@ function liveThreadSummaries(bridges, options = {}) {
   return rows.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+function firstText(...values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function normalizeTimestamp(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return number;
+    const parsed = Date.parse(String(value || ""));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function rawHistoryThreads(result) {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.data)) return result.data;
+  if (Array.isArray(result?.threads)) return result.threads;
+  if (Array.isArray(result?.items)) return result.items;
+  return [];
+}
+
+function summarizeHistoryThreads(result) {
+  return rawHistoryThreads(result)
+    .map((thread) => {
+      const id = firstText(thread?.id, thread?.threadId, thread?.sessionId);
+      if (!id) return null;
+      const cwd = firstText(thread?.cwd, thread?.workdir, thread?.workingDirectory, thread?.metadata?.cwd);
+      const name = firstText(thread?.name, thread?.title, thread?.metadata?.name);
+      const preview = firstText(thread?.preview, thread?.summary, thread?.lastMessage, thread?.metadata?.preview, name, cwd, id);
+      const updatedAt = normalizeTimestamp(thread?.updatedAt, thread?.updated_at, thread?.lastUpdatedAt, thread?.last_updated_at);
+      const createdAt = normalizeTimestamp(thread?.createdAt, thread?.created_at);
+      return {
+        id,
+        threadId: id,
+        cwd,
+        name: name || null,
+        preview,
+        updatedAt: updatedAt || createdAt || Date.now(),
+        createdAt: createdAt || updatedAt || Date.now(),
+        status: "idle",
+        source: "history",
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+}
+
 function snapshotFromThread({ thread, threadId, historyFromThread }) {
   const appServerHistory = historyFromThread(thread);
   if (appServerHistory.length) {
@@ -147,4 +199,5 @@ module.exports = {
   liveThreadSummaries,
   readThreadSnapshot,
   snapshotFromThread,
+  summarizeHistoryThreads,
 };

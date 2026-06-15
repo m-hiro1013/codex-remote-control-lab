@@ -2,6 +2,7 @@ import React from "react";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import {
   Box,
+  Archive,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -17,6 +18,7 @@ import {
   Search,
   Send,
   Settings,
+  Target,
   TerminalSquare,
   Workflow,
   X,
@@ -314,6 +316,8 @@ function ArtifactPanel() {
           <PanelTab id="artifactTab" panel="artifacts" icon={FileText} label="成果物" />
           <PanelTab id="workspaceTab" panel="workspace" icon={FolderOpen} label="Files" />
           <PanelTab id="reviewTab" panel="review" icon={GitBranch} label="Diff" />
+          <PanelTab id="goalTab" panel="goal" icon={Target} label="Goal" />
+          <PanelTab id="archiveTab" panel="archive" icon={Archive} label="Archive" />
           <PanelTab id="statusButton" panel="status" icon={TerminalSquare} label="Run" />
           <PanelTab id="webSearchButton" panel="sources" icon={Globe2} label="Web" />
         </div>

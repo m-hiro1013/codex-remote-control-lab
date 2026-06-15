@@ -50,6 +50,8 @@ const artifactPreview = document.querySelector("#artifactPreview");
 const artifactTab = document.querySelector("#artifactTab");
 const workspaceTab = document.querySelector("#workspaceTab");
 const reviewTab = document.querySelector("#reviewTab");
+const goalTab = document.querySelector("#goalTab");
+const archiveTab = document.querySelector("#archiveTab");
 const panelTabButtons = document.querySelectorAll("[data-panel-tab]");
 const statusButton = document.querySelector("#statusButton");
 const webSearchButton = document.querySelector("#webSearchButton");
@@ -177,10 +179,14 @@ let remoteSessionState = null;
 let lastHistorySignature = "";
 let lastThreadListError = "";
 let lastThreadRefreshError = "";
+let lastTurnCompletedAt = 0;
 let selectedThreadRefreshActive = false;
+let reconnectTimer = null;
+let reconnectAttempt = 0;
 let selectedModel = localStorage.getItem("codexPhoneModel") || "";
 let selectedModelLabel = localStorage.getItem("codexPhoneModelLabel") || "5.5";
 let selectedReasoning = localStorage.getItem("codexPhoneReasoning") || "中";
+let notificationsEnabled = localStorage.getItem("codexRemoteNotificationsEnabled") === "1";
 let activeMainMode = localStorage.getItem("codexMainMode") || "chat";
 let nativeTerminal = null;
 let terminalLongPressActive = false;
@@ -192,6 +198,7 @@ let terminalInputMode = localStorage.getItem("codexTerminalInputMode") === "keys
 let terminalCopyFallbackDialog = null;
 let settingsRenderSeq = 0;
 let artifactItems = [];
+let archiveSelection = new Set();
 let activeArtifactPath = "";
 let activePanel = "artifacts";
 let currentWorkdir = "";
@@ -202,12 +209,19 @@ const activeSessionStorageKey = "codexRemoteLastActiveSessionKey";
 const resumeSessionStorageKey = "codexRemoteResumeSession";
 const cwdHistoryStorageKey = "codexRemoteCwdHistory";
 const closedThreadIdsStorageKey = "codexRemoteClosedThreadIds";
+const pinnedThreadIdsStorageKey = "codexRemotePinnedThreadIds";
+const expandedThreadGroupsStorageKey = "codexRemoteExpandedThreadGroups";
+const collapsedThreadGroupsStorageKey = "codexRemoteCollapsedThreadGroups";
 const maxCwdHistory = 8;
 let openSessions = [];
 let activeSessionKey = "";
 let resumeCandidateSession = null;
 let cwdHistory = readCwdHistory();
 let closedThreadIds = new Set();
+let pinnedThreadIds = new Set();
+let historyThreadCache = [];
+let liveThreadCache = [];
+let threadListLoaded = false;
 let sessionCreateCwd = localStorage.getItem("codexRemoteLastCwd") || "";
 let sessionBrowserCurrentPath = sessionCreateCwd || "";
 let sessionBrowserParentPath = "";
@@ -232,6 +246,7 @@ const sessionStore = sessionStateRuntime.createSessionStore({
   activeSessionKey: localStorage.getItem(activeSessionStorageKey) || "",
   resumeCandidateSession: readResumeSession(),
   closedThreadIds: readClosedThreadIds(),
+  pinnedThreadIds: readPinnedThreadIds(),
 });
 syncSessionState(sessionStore.snapshot());
 let pendingFiles = [];
@@ -265,6 +280,30 @@ function setRunState(state, label) {
   runStateLabel.textContent = nextLabel;
 }
 
+const threadStatusUi = {
+  running: ["running", runStateText.running],
+  streaming: ["running", runStateText.streaming],
+  syncing: ["running", runStateText.syncing],
+  starting: ["running", "起動中"],
+  awaiting_approval: ["approval", runStateText.approval],
+  approval: ["approval", runStateText.approval],
+  input_ready: ["idle", "入力待ち"],
+  ready: ["idle", "入力待ち"],
+  idle: ["idle", "履歴"],
+  done: ["done", runStateText.done],
+  completed: ["done", runStateText.done],
+  error: ["error", runStateText.error],
+  disconnected: ["error", runStateText.disconnected],
+};
+
+function statusClassForThread(status) {
+  return threadStatusUi[String(status || "idle")]?.[0] || "idle";
+}
+
+function statusLabelForThread(status) {
+  return threadStatusUi[String(status || "idle")]?.[1] || "履歴";
+}
+
 function adoptCanonicalSessionState(state) {
   syncSessionState(sessionStore.adoptRemoteState(state));
   persistSessionState();
@@ -296,6 +335,8 @@ function applyRemoteSessionState(state) {
     liveTurnActive = false;
     assistantEntry = null;
     setRunState("done", state.label || "入力待ち");
+    if (!shouldHandleTurnCompleted()) return;
+    maybeNotifyTurnCompleted();
     loadThreads();
     refreshSelectedThread();
   }
@@ -372,6 +413,15 @@ function readJsonObjectArray(storageKey) {
   }
 }
 
+function readStringSet(storageKey) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string" && item) : []);
+  } catch {
+    return new Set();
+  }
+}
+
 function readOpenSessions() {
   return readJsonObjectArray(openSessionsStorageKey)
     .map((item) => normalizeOpenSession(item))
@@ -396,13 +446,19 @@ function readCwdHistory() {
 }
 
 function readClosedThreadIds() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(closedThreadIdsStorageKey) || "[]");
-    return new Set(Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : []);
-  } catch {
-    return new Set();
-  }
+  return readStringSet(closedThreadIdsStorageKey);
 }
+
+function readPinnedThreadIds() {
+  return readStringSet(pinnedThreadIdsStorageKey);
+}
+
+function readExpandedThreadGroups() {
+  return readStringSet(expandedThreadGroupsStorageKey);
+}
+
+let expandedThreadGroups = readExpandedThreadGroups();
+let collapsedThreadGroups = readStringSet(collapsedThreadGroupsStorageKey);
 
 function sessionKeyFor(threadId = "", cwd = "") {
   return sessionStateRuntime.sessionKeyFor(threadId, cwd);
@@ -464,6 +520,7 @@ function syncSessionState(snapshot) {
   activeSessionKey = snapshot.activeSessionKey;
   resumeCandidateSession = snapshot.resumeCandidateSession;
   closedThreadIds = snapshot.closedThreadIds;
+  pinnedThreadIds = snapshot.pinnedThreadIds;
 }
 
 function persistSessionState() {
@@ -473,6 +530,7 @@ function persistSessionState() {
   if (resumeCandidateSession?.threadId) localStorage.setItem(resumeSessionStorageKey, JSON.stringify(resumeCandidateSession));
   else localStorage.removeItem(resumeSessionStorageKey);
   localStorage.setItem(closedThreadIdsStorageKey, JSON.stringify(Array.from(closedThreadIds)));
+  localStorage.setItem(pinnedThreadIdsStorageKey, JSON.stringify(Array.from(pinnedThreadIds)));
 }
 
 function addOrUpdateOpenSession(input) {
@@ -798,8 +856,8 @@ function syncRightPanelState({ focus = false } = {}) {
 }
 
 function titleForThread(thread) {
-  const raw = thread.name || thread.preview || thread.cwd || thread.id;
-  const firstLine = raw.split("\n").find(Boolean) || thread.id;
+  const raw = String(thread.name || thread.preview || thread.cwd || thread.id || "");
+  const firstLine = raw.split("\n").find(Boolean) || thread.id || "";
   return firstLine.length > 54 ? `${firstLine.slice(0, 54)}...` : firstLine;
 }
 
@@ -807,6 +865,41 @@ function projectForThread(thread) {
   const cwd = String(thread.cwd || "").replace(/\/+$/, "");
   if (!cwd) return "No project";
   return cwd.split("/").filter(Boolean).pop() || cwd;
+}
+
+function projectKeyForThread(thread) {
+  return String(thread.cwd || "").replace(/\/+$/, "") || "No project";
+}
+
+function mergeHistoryAndLiveThreads(historyThreads = [], liveThreads = []) {
+  const byId = new Map();
+  for (const thread of historyThreads) {
+    if (!thread?.id) continue;
+    byId.set(thread.id, { ...thread, source: thread.source || "history" });
+  }
+  for (const live of liveThreads) {
+    if (!live?.id) continue;
+    const previous = byId.get(live.id) || {};
+    byId.set(live.id, {
+      ...previous,
+      ...live,
+      name: live.name || previous.name || null,
+      preview: live.preview || previous.preview || "",
+      cwd: live.cwd || previous.cwd || "",
+      updatedAt: Math.max(Number(live.updatedAt || 0), Number(previous.updatedAt || 0)) || live.updatedAt || previous.updatedAt,
+      createdAt: previous.createdAt || live.createdAt,
+      status: live.status || previous.status || "idle",
+      source: previous.id ? "history-live" : "live-bridge",
+    });
+  }
+  return Array.from(byId.values()).sort((a, b) => Number(b.updatedAt || b.createdAt || 0) - Number(a.updatedAt || a.createdAt || 0));
+}
+
+function setThreadCaches({ history = historyThreadCache, live = liveThreadCache } = {}) {
+  historyThreadCache = Array.isArray(history) ? history : [];
+  liveThreadCache = Array.isArray(live) ? live : [];
+  threadCache = mergeHistoryAndLiveThreads(historyThreadCache, liveThreadCache);
+  threadListLoaded = true;
 }
 
 function formatRelativeTime(timestamp) {
@@ -1242,13 +1335,12 @@ function renderHistory(history) {
 }
 
 function historySignature(history = []) {
-  return JSON.stringify(
-    history.map((entry) => ({
-      type: entry.type,
-      text: entry.text || "",
-      attachments: (entry.attachments || []).map((attachment) => attachment.name || attachment.url || ""),
-    })),
-  );
+  const items = Array.isArray(history) ? history : [];
+  const sample = [items[0], items.at(-2), items.at(-1)].filter(Boolean);
+  const sampleSignature = sample
+    .map((entry) => `${entry.type || ""}:${String(entry.text || "").length}:${String(entry.text || "").slice(0, 80)}:${(entry.attachments || []).length}`)
+    .join("|");
+  return `${items.length}:${sampleSignature}`;
 }
 
 function renderHistoryIfChanged(history = []) {
@@ -1268,52 +1360,116 @@ function renderThreadList() {
   newProject.innerHTML = `${fontAwesomeIcon("folderPlus", "project-icon")}<span>New project</span>`;
   newProject.addEventListener("click", startNewThread);
   threadList.appendChild(newProject);
-
-  const groups = new Map();
-  for (const thread of threadCache) {
-    const project = projectForThread(thread);
-    const title = titleForThread(thread);
-    const matches = !query || project.toLowerCase().includes(query) || title.toLowerCase().includes(query);
-    if (!matches) continue;
-    if (!groups.has(project)) groups.set(project, []);
-    groups.get(project).push(thread);
+  if (!threadListLoaded) {
+    const skeleton = document.createElement("div");
+    skeleton.className = "thread-list-skeleton";
+    skeleton.innerHTML = "<span></span><span></span><span></span>";
+    threadList.appendChild(skeleton);
+    return;
   }
 
-  for (const [project, threads] of groups) {
+  const groups = new Map();
+  const pinned = [];
+  for (const thread of threadCache) {
+    const projectKey = projectKeyForThread(thread);
+    const title = titleForThread(thread);
+    const searchText = `${projectKey} ${projectForThread(thread)} ${title} ${thread.preview || ""} ${thread.id || ""}`.toLowerCase();
+    const matches = !query || searchText.includes(query);
+    if (!matches) continue;
+    if (pinnedThreadIds.has(thread.id)) pinned.push(thread);
+    if (!groups.has(projectKey)) groups.set(projectKey, []);
+    groups.get(projectKey).push(thread);
+  }
+
+  const renderThreadRow = (group, thread) => {
+    const row = document.createElement("div");
+    row.className = thread.id === selectedThread ? "thread-row active" : "thread-row";
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = thread.id === selectedThread ? "thread-item active" : "thread-item";
+    item.title = titleForThread(thread);
+    const status = document.createElement("span");
+    status.className = `thread-status-dot ${statusClassForThread(thread.status)}`;
+    status.setAttribute("aria-label", statusLabelForThread(thread.status));
+    const title = document.createElement("span");
+    title.className = "thread-title";
+    title.textContent = titleForThread(thread);
+    const time = document.createElement("span");
+    time.className = "thread-time";
+    time.textContent = formatRelativeTime(thread.updatedAt || thread.createdAt);
+    item.append(status, title, time);
+    item.addEventListener("click", () => selectThread(thread.id));
+    const pin = document.createElement("button");
+    pin.type = "button";
+    pin.className = pinnedThreadIds.has(thread.id) ? "thread-pin active" : "thread-pin";
+    pin.title = pinnedThreadIds.has(thread.id) ? "ピン留めを外す" : "ピン留め";
+    pin.setAttribute("aria-label", `${titleForThread(thread)} ${pin.title}`);
+    pin.textContent = pinnedThreadIds.has(thread.id) ? "★" : "☆";
+    pin.addEventListener("click", (event) => {
+      event.stopPropagation();
+      syncSessionState(sessionStore.togglePinnedThread(thread.id));
+      persistSessionState();
+      renderThreadList();
+    });
+    row.append(item, pin);
+    group.appendChild(row);
+  };
+
+  const renderGroup = (projectKey, threads, options = {}) => {
     const group = document.createElement("section");
     group.className = "project-group";
 
     const heading = document.createElement("div");
     heading.className = "project-heading";
+    heading.setAttribute("role", "button");
+    heading.tabIndex = 0;
     const folder = document.createElement("span");
     folder.className = "project-icon-slot";
     folder.innerHTML = fontAwesomeIcon("folder", "project-icon");
     const name = document.createElement("span");
-    name.textContent = project;
+    name.textContent = options.label || projectForThread({ cwd: projectKey });
+    if (projectKey !== "No project") name.title = projectKey;
     heading.append(folder, name);
     group.appendChild(heading);
 
-    const visibleThreads = threads.slice(0, 6);
+    const collapsed = collapsedThreadGroups.has(projectKey) && !options.alwaysExpanded && !query;
+    heading.addEventListener("click", () => {
+      if (options.alwaysExpanded) return;
+      if (collapsedThreadGroups.has(projectKey)) collapsedThreadGroups.delete(projectKey);
+      else collapsedThreadGroups.add(projectKey);
+      localStorage.setItem(collapsedThreadGroupsStorageKey, JSON.stringify(Array.from(collapsedThreadGroups)));
+      renderThreadList();
+    });
+    heading.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      heading.click();
+    });
+    if (collapsed) {
+      const empty = document.createElement("div");
+      empty.className = "project-more";
+      empty.textContent = `${threads.length}件`;
+      group.appendChild(empty);
+      threadList.appendChild(group);
+      return;
+    }
+
+    const expanded = expandedThreadGroups.has(projectKey) || Boolean(query) || options.alwaysExpanded;
+    const visibleThreads = expanded ? threads : threads.slice(0, 6);
     for (const thread of visibleThreads) {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = thread.id === selectedThread ? "thread-item active" : "thread-item";
-      item.title = titleForThread(thread);
-      const title = document.createElement("span");
-      title.className = "thread-title";
-      title.textContent = titleForThread(thread);
-      const time = document.createElement("span");
-      time.className = "thread-time";
-      time.textContent = formatRelativeTime(thread.updatedAt || thread.createdAt);
-      item.append(title, time);
-      item.addEventListener("click", () => selectThread(thread.id));
-      group.appendChild(item);
+      renderThreadRow(group, thread);
     }
 
     if (threads.length > visibleThreads.length) {
-      const more = document.createElement("div");
+      const more = document.createElement("button");
+      more.type = "button";
       more.className = "project-more";
-      more.textContent = "もっと表示する";
+      more.textContent = `もっと表示する (${threads.length - visibleThreads.length})`;
+      more.addEventListener("click", () => {
+        expandedThreadGroups.add(projectKey);
+        localStorage.setItem(expandedThreadGroupsStorageKey, JSON.stringify(Array.from(expandedThreadGroups)));
+        renderThreadList();
+      });
       group.appendChild(more);
     } else if (!visibleThreads.length) {
       const empty = document.createElement("div");
@@ -1322,6 +1478,15 @@ function renderThreadList() {
       group.appendChild(empty);
     }
     threadList.appendChild(group);
+  };
+
+  if (pinned.length) {
+    const uniquePinned = Array.from(new Map(pinned.map((thread) => [thread.id, thread])).values());
+    renderGroup("__pinned__", uniquePinned, { label: "📌 ピン留め", alwaysExpanded: true });
+  }
+
+  for (const [projectKey, threads] of groups) {
+    renderGroup(projectKey, threads);
   }
 }
 
@@ -1333,6 +1498,20 @@ async function apiGet(path) {
   const separator = path.includes("?") ? "&" : "?";
   const query = authQuery();
   const response = await fetch(query ? `${path}${separator}${query}` : path, { cache: "no-store" });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || `${response.status} ${response.statusText}`);
+  return result;
+}
+
+async function apiPost(path, body = {}) {
+  const separator = path.includes("?") ? "&" : "?";
+  const query = authQuery();
+  const response = await fetch(query ? `${path}${separator}${query}` : path, {
+    method: "POST",
+    cache: "no-store",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || `${response.status} ${response.statusText}`);
   return result;
@@ -1357,8 +1536,14 @@ async function loadBridgeInfo() {
 async function loadThreads({ background = false } = {}) {
   if (tokenRequired && !token) return;
   try {
-    const result = await apiGet("/api/live-threads");
-    threadCache = result.data || [];
+    const [historyResult, liveResult] = await Promise.all([
+      apiGet("/api/threads?limit=100"),
+      apiGet("/api/live-threads"),
+    ]);
+    setThreadCaches({
+      history: historyResult.data || [],
+      live: liveResult.data || [],
+    });
     syncOpenSessionsFromThreads();
     renderThreadList();
     lastThreadListError = "";
@@ -1367,6 +1552,24 @@ async function loadThreads({ background = false } = {}) {
     if (message !== lastThreadListError) {
       lastThreadListError = message;
       addEntry("error", `thread一覧を読めませんでした: ${message}`);
+    }
+    if (!background) throw error;
+  }
+}
+
+async function refreshLiveThreads({ background = true } = {}) {
+  if (tokenRequired && !token) return;
+  try {
+    const result = await apiGet("/api/live-threads");
+    setThreadCaches({ live: result.data || [] });
+    syncOpenSessionsFromThreads();
+    renderThreadList();
+    lastThreadListError = "";
+  } catch (error) {
+    const message = error.message || String(error);
+    if (message !== lastThreadListError) {
+      lastThreadListError = message;
+      addEntry("error", `live thread状態を読めませんでした: ${message}`);
     }
     if (!background) throw error;
   }
@@ -2029,6 +2232,33 @@ function showToolError(name, error) {
   document.body.classList.remove("show-sidebar");
 }
 
+function maybeNotifyTurnCompleted() {
+  if (!notificationsEnabled || !document.hidden || !("Notification" in window) || Notification.permission !== "granted") return;
+  const title = threadTitle?.textContent || "Codex Remote";
+  new Notification("Codex turn completed", {
+    body: title,
+    tag: selectedThread || "codex-remote-turn",
+  });
+}
+
+function shouldHandleTurnCompleted() {
+  const now = Date.now();
+  if (now - lastTurnCompletedAt < 1200) return false;
+  lastTurnCompletedAt = now;
+  return true;
+}
+
+async function toggleBrowserNotifications(enabled) {
+  notificationsEnabled = Boolean(enabled);
+  if (notificationsEnabled && "Notification" in window && Notification.permission === "default") {
+    const permission = await Notification.requestPermission();
+    notificationsEnabled = permission === "granted";
+  }
+  if (notificationsEnabled && "Notification" in window && Notification.permission === "denied") notificationsEnabled = false;
+  localStorage.setItem("codexRemoteNotificationsEnabled", notificationsEnabled ? "1" : "0");
+  showSettings();
+}
+
 async function showPlugins() {
   clearPanel("プラグイン");
   addPanelRow("読み込み中...");
@@ -2109,6 +2339,15 @@ async function showSettings() {
   clearPanel("設定");
   artifactList.replaceChildren();
   renderThemeSettings();
+  const notificationDetail =
+    "Notification" in window
+      ? notificationsEnabled
+        ? `有効 / permission: ${Notification.permission}`
+        : `無効 / permission: ${Notification.permission}`
+      : "このブラウザでは未対応";
+  addPanelRow(notificationsEnabled ? "完了通知を無効化" : "完了通知を有効化", notificationDetail, () => {
+    void toggleBrowserNotifications(!notificationsEnabled);
+  }, "NTF");
   const loadingRow = addPanelRow("読み込み中...");
   try {
     const result = await apiGet("/api/config");
@@ -2239,16 +2478,38 @@ function renderReview(result) {
   addPanelRow(result.clean ? "変更なし" : `${result.files?.length || 0}件の変更`, result.clean ? "working tree clean" : "git status --short", null, "Δ");
   for (const statLine of result.stat || []) addPanelRow(statLine.trim(), "", null, "Σ");
   for (const file of result.files || []) {
-    const row = addPanelRow(file.path, file.status, () => {
+    const details = document.createElement("details");
+    details.className = "review-file";
+    const summary = document.createElement("summary");
+    summary.innerHTML = `
+      <span class="review-file-status">${escapeHtml(file.status || "MOD")}</span>
+      <span class="review-file-path">${escapeHtml(file.path)}</span>
+      <span class="row-diff-stat">${diffStatLabel(file)}</span>
+    `;
+    const actions = document.createElement("div");
+    actions.className = "review-file-actions";
+    const action = document.createElement("button");
+    action.type = "button";
+    action.textContent = file.openable ? "Open" : "Prompt";
+    action.addEventListener("click", () => {
       if (file.openable) {
         showArtifact(file.path);
         return;
       }
       appendToPrompt(`レビュー対象: ${file.path}`);
       addStatus(`${file.path} をレビュー対象として入力に追加しました。`);
-    }, file.status || "MOD");
-    row.classList.add("review-row");
-    row.innerHTML += `<span class="row-diff-stat">${diffStatLabel(file)}</span>`;
+    });
+    actions.appendChild(action);
+    const pre = document.createElement("pre");
+    pre.className = "review-diff";
+    for (const line of String(file.diff || "diffなし").split("\n")) {
+      const span = document.createElement("span");
+      span.className = line.startsWith("+") && !line.startsWith("+++") ? "line-add" : line.startsWith("-") && !line.startsWith("---") ? "line-del" : "";
+      span.textContent = line || " ";
+      pre.appendChild(span);
+    }
+    details.append(summary, actions, pre);
+    artifactList.appendChild(details);
   }
 }
 
@@ -2260,6 +2521,153 @@ async function showReview() {
     renderReview(result);
   } catch (error) {
     showToolError("レビュー", error);
+  }
+}
+
+function renderGoalEditor(goal = "") {
+  artifactList.replaceChildren();
+  artifactList.classList.add("artifact-browser-list");
+  const wrap = document.createElement("div");
+  wrap.className = "goal-editor";
+  wrap.innerHTML = `
+    <label class="goal-field">
+      <span>Goal</span>
+      <textarea id="goalEditorText" rows="6" placeholder="この thread の goal を入力">${escapeHtml(goal || "")}</textarea>
+    </label>
+    <div class="goal-actions">
+      <button type="button" class="secondary" id="goalClearButton">Clear</button>
+      <button type="button" id="goalSaveButton">Save</button>
+    </div>
+  `;
+  artifactList.appendChild(wrap);
+  const textarea = wrap.querySelector("#goalEditorText");
+  wrap.querySelector("#goalSaveButton")?.addEventListener("click", async () => {
+    try {
+      const result = await apiPost("/api/goal", { thread: selectedThread, goal: textarea.value });
+      if (!result.supported) {
+        renderGoalUnsupported();
+        return;
+      }
+      addStatus("Goal を保存しました。");
+      renderGoalEditor(result.goal || textarea.value);
+    } catch (error) {
+      showToolError("Goal", error);
+    }
+  });
+  wrap.querySelector("#goalClearButton")?.addEventListener("click", async () => {
+    try {
+      const result = await apiPost("/api/goal", { thread: selectedThread, goal: "" });
+      if (!result.supported) {
+        renderGoalUnsupported();
+        return;
+      }
+      addStatus("Goal をクリアしました。");
+      renderGoalEditor("");
+    } catch (error) {
+      showToolError("Goal", error);
+    }
+  });
+}
+
+function renderGoalUnsupported() {
+  artifactList.replaceChildren();
+  addPanelRow("この Codex バージョンは goals 未対応", "app-server が thread_goals を利用できません", null, "GOAL");
+}
+
+async function showGoal() {
+  clearPanel("Goal", "goal");
+  if (!selectedThread) {
+    addPanelRow("thread未選択", "履歴または稼働中 thread を選択してください", null, "GOAL");
+    return;
+  }
+  addPanelRow("読み込み中...");
+  try {
+    const result = await apiGet(`/api/goal?thread=${encodeURIComponent(selectedThread)}`);
+    if (!result.supported) {
+      renderGoalUnsupported();
+      return;
+    }
+    renderGoalEditor(result.goal || "");
+  } catch (error) {
+    showToolError("Goal", error);
+  }
+}
+
+async function archiveThreads(threadIds, archived) {
+  for (const threadId of threadIds) {
+    await apiPost("/api/thread-archive", { thread: threadId, archived });
+  }
+  archiveSelection = new Set();
+  await loadThreads({ background: true });
+  await showArchive();
+}
+
+async function renameThread(thread) {
+  const nextName = window.prompt("Thread name", thread.name || titleForThread(thread));
+  if (nextName === null) return;
+  await apiPost("/api/thread-name", { thread: thread.id, name: nextName });
+  await loadThreads({ background: true });
+  await showArchive();
+}
+
+function renderArchiveThreads(threads, archivedView) {
+  artifactList.replaceChildren();
+  artifactList.classList.add("artifact-browser-list");
+  const toolbar = document.createElement("div");
+  toolbar.className = "archive-toolbar";
+  const selected = () => Array.from(archiveSelection);
+  const archiveButton = document.createElement("button");
+  archiveButton.type = "button";
+  archiveButton.textContent = archivedView ? "選択を戻す" : "選択をアーカイブ";
+  archiveButton.disabled = archiveSelection.size === 0;
+  archiveButton.addEventListener("click", () => void archiveThreads(selected(), !archivedView));
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.disabled = true;
+  deleteButton.textContent = "削除は未対応";
+  toolbar.append(archiveButton, deleteButton);
+  artifactList.appendChild(toolbar);
+
+  for (const thread of threads) {
+    const row = document.createElement("div");
+    row.className = "archive-thread-row";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = archiveSelection.has(thread.id);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) archiveSelection.add(thread.id);
+      else archiveSelection.delete(thread.id);
+      renderArchiveThreads(threads, archivedView);
+    });
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "archive-thread-main";
+    open.innerHTML = `<strong>${escapeHtml(titleForThread(thread))}</strong><small>${escapeHtml(displayPath(thread.cwd || ""))}</small>`;
+    open.addEventListener("click", () => {
+      if (!archivedView) selectThread(thread.id);
+    });
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.textContent = "Rename";
+    rename.addEventListener("click", () => void renameThread(thread));
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.textContent = archivedView ? "Unarchive" : "Archive";
+    toggle.addEventListener("click", () => void archiveThreads([thread.id], !archivedView));
+    row.append(checkbox, open, rename, toggle);
+    artifactList.appendChild(row);
+  }
+  if (!threads.length) addPanelRow(archivedView ? "アーカイブ済み thread はありません" : "履歴 thread はありません");
+}
+
+async function showArchive(archivedView = true) {
+  clearPanel(archivedView ? "Archive" : "Threads", "archive");
+  addPanelRow("読み込み中...");
+  try {
+    const result = await apiGet(`/api/threads?limit=100&archived=${archivedView ? "1" : "0"}`);
+    renderArchiveThreads(result.data || [], archivedView);
+  } catch (error) {
+    showToolError("Archive", error);
   }
 }
 
@@ -2280,7 +2688,8 @@ function startVoiceInput() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     voiceButton.dataset.voiceState = "unsupported";
-    addStatus("このブラウザでは音声入力APIが使えません。");
+    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    addStatus(isIos ? "iOS Safari では Web Speech API が利用できない場合があります。キーボードの音声入力を使ってください。" : "このブラウザでは音声入力APIが使えません。");
     promptInput.focus();
     return;
   }
@@ -2297,7 +2706,7 @@ function startVoiceInput() {
     promptInput.focus();
     addStatus("音声入力をテキストへ追加しました。");
   });
-  recognition.addEventListener("error", (event) => addStatus(`音声入力に失敗しました: ${event.error || "unknown"}`));
+  recognition.addEventListener("error", (event) => addStatus(`音声入力に失敗しました: ${event.error || "ブラウザまたは権限が音声入力を拒否しました"}`));
   recognition.addEventListener("end", () => voiceButton.classList.remove("listening"));
   recognition.start();
 }
@@ -2575,17 +2984,49 @@ function sendPromptToBridge(text, attachments = []) {
   return true;
 }
 
-function connect() {
+function sendApprovalToBridge(decision) {
+  if (!pendingApproval) return false;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    approval.classList.remove("hidden");
+    setRunState("disconnected", "承認待ち・再接続が必要");
+    addStatus("接続が切れているため承認を送れません。再接続後にもう一度承認できます。");
+    connect();
+    return false;
+  }
+  ws.send(JSON.stringify({ type: "approval", token, decision, request: pendingApproval }));
+  approval.classList.add("hidden");
+  pendingApproval = null;
+  setRunState("running", decision === "accept" ? "承認済み・処理中" : "拒否済み・処理中");
+  return true;
+}
+
+function clearReconnectTimer() {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer || (tokenRequired && !token)) return;
+  const delay = Math.min(30_000, 1_000 * 2 ** reconnectAttempt);
+  reconnectAttempt += 1;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect({ autoReconnect: true });
+  }, delay);
+}
+
+function connect(options = {}) {
   if (tokenRequired && !token) {
     addEntry("error", "URLに token がありません。Mac側に表示されたURLをそのまま開いてください。");
     return;
   }
+  clearReconnectTimer();
   if (ws) ws.close();
   liveTurnActive = false;
   remoteSessionState = null;
   setRunState("connecting");
   lastHistorySignature = "";
-  renderHistory([]);
+  if (!selectedThread) renderHistory([]);
   const selected = threadCache.find((thread) => thread.id === selectedThread);
   threadTitle.textContent = selected ? titleForThread(selected) : "新しい共有thread";
 
@@ -2608,6 +3049,7 @@ function connect() {
 
   ws.addEventListener("open", () => {
     if (socket !== ws) return;
+    reconnectAttempt = 0;
     setRunState("connecting", "Codex に接続中");
     addEntry("status", "Macの共有ブリッジへ接続しました。");
   });
@@ -2658,6 +3100,8 @@ function connect() {
       lastHistorySignature = "";
       assistantEntry = null;
       setRunState("done", "完了しました");
+      if (!shouldHandleTurnCompleted()) return;
+      maybeNotifyTurnCompleted();
       ensureNativeTerminalConnected({ focus: activeMainMode === "terminal" });
       loadThreads();
       refreshSelectedThread();
@@ -2683,12 +3127,19 @@ function connect() {
     connectButton.disabled = false;
     meta.textContent = "切断";
     setRunState("disconnected");
+    if (options.autoReconnect) addStatus("接続が切れたため再接続を継続します。");
+    scheduleReconnect();
   });
 }
 
 composer.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = promptInput.value.trim();
+  if (text === "/goal") {
+    promptInput.value = "";
+    showGoal();
+    return;
+  }
   if (!sendPromptToBridge(text, pendingFiles)) return;
   promptInput.value = "";
   pendingFiles = [];
@@ -2702,19 +3153,11 @@ promptInput.addEventListener("keydown", (event) => {
 });
 
 approveButton.addEventListener("click", () => {
-  if (!pendingApproval) return;
-  ws.send(JSON.stringify({ type: "approval", token, decision: "accept", request: pendingApproval }));
-  approval.classList.add("hidden");
-  pendingApproval = null;
-  setRunState("running", "承認済み・処理中");
+  sendApprovalToBridge("accept");
 });
 
 declineButton.addEventListener("click", () => {
-  if (!pendingApproval) return;
-  ws.send(JSON.stringify({ type: "approval", token, decision: "decline", request: pendingApproval }));
-  approval.classList.add("hidden");
-  pendingApproval = null;
-  setRunState("running", "拒否済み・処理中");
+  sendApprovalToBridge("decline");
 });
 
 newThreadButton.addEventListener("click", () => openSessionCreatePage());
@@ -2932,6 +3375,8 @@ statusButton.addEventListener("click", showStatus);
 artifactTab?.addEventListener("click", () => renderArtifactIndex(artifactItems));
 workspaceTab?.addEventListener("click", showWorkspace);
 reviewTab?.addEventListener("click", showReview);
+goalTab?.addEventListener("click", showGoal);
+archiveTab?.addEventListener("click", () => showArchive(true));
 webSearchButton.addEventListener("click", showSources);
 for (const button of artifactButtons) {
   button.addEventListener("click", () => {
@@ -2968,5 +3413,5 @@ loadBridgeInfo()
   .catch(() => {
     setRunState("error", "bridge情報を確認できません");
   });
-setInterval(() => loadThreads({ background: true }), 10_000);
+setInterval(() => refreshLiveThreads({ background: true }), 5_000);
 setInterval(refreshSelectedThread, 3_000);

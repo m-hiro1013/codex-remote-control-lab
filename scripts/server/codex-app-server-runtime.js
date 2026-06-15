@@ -35,6 +35,7 @@ class AppServerRpcClient {
       this.upstream.on("open", () => {
         this.sendRequest("initialize", {
           clientInfo: { name: "codex-phone-bridge-api", title: "Codex Phone Bridge API", version: "0.1.0" },
+          capabilities: { experimentalApi: true },
         })
           .then(() => {
             if (this.upstream?.readyState === WebSocket.OPEN) {

@@ -38,6 +38,9 @@ var CodexSessionBrowserState = (() => {
         if (Array.isArray(items)) return new Set(items.filter((item) => typeof item === "string" && item));
         return /* @__PURE__ */ new Set();
       }
+      function normalizePinnedThreadIds(items) {
+        return normalizeClosedThreadIds(items);
+      }
       function cloneState(state) {
         return {
           selectedThread: state.selectedThread,
@@ -45,7 +48,8 @@ var CodexSessionBrowserState = (() => {
           openSessions: state.openSessions.map((item) => ({ ...item })),
           activeSessionKey: state.activeSessionKey,
           resumeCandidateSession: state.resumeCandidateSession ? { ...state.resumeCandidateSession } : null,
-          closedThreadIds: new Set(state.closedThreadIds)
+          closedThreadIds: new Set(state.closedThreadIds),
+          pinnedThreadIds: new Set(state.pinnedThreadIds)
         };
       }
       function createSessionStore(initial = {}) {
@@ -55,7 +59,8 @@ var CodexSessionBrowserState = (() => {
           openSessions: normalizeOpenSessions(initial.openSessions),
           activeSessionKey: String(initial.activeSessionKey || ""),
           resumeCandidateSession: normalizeOpenSession(initial.resumeCandidateSession),
-          closedThreadIds: normalizeClosedThreadIds(initial.closedThreadIds)
+          closedThreadIds: normalizeClosedThreadIds(initial.closedThreadIds),
+          pinnedThreadIds: normalizePinnedThreadIds(initial.pinnedThreadIds)
         };
         function snapshot() {
           return cloneState(state);
@@ -72,6 +77,23 @@ var CodexSessionBrowserState = (() => {
         function forgetClosedThread(threadId) {
           const id = String(threadId || "");
           if (id) state.closedThreadIds.delete(id);
+          return snapshot();
+        }
+        function pinThread(threadId) {
+          const id = String(threadId || "");
+          if (id) state.pinnedThreadIds.add(id);
+          return snapshot();
+        }
+        function unpinThread(threadId) {
+          const id = String(threadId || "");
+          if (id) state.pinnedThreadIds.delete(id);
+          return snapshot();
+        }
+        function togglePinnedThread(threadId) {
+          const id = String(threadId || "");
+          if (!id) return snapshot();
+          if (state.pinnedThreadIds.has(id)) state.pinnedThreadIds.delete(id);
+          else state.pinnedThreadIds.add(id);
           return snapshot();
         }
         function setResumeCandidate(session) {
@@ -277,6 +299,7 @@ var CodexSessionBrowserState = (() => {
           comparableSessionPath,
           forgetClosedThread,
           normalizeOpenSession,
+          pinThread,
           rememberClosedThread,
           removeSession,
           restoreFromLiveThreads,
@@ -287,6 +310,8 @@ var CodexSessionBrowserState = (() => {
           syncFromLiveThreads,
           syncReadyThread,
           selectLiveThread,
+          togglePinnedThread,
+          unpinThread,
           updateActiveSessionStatus
         };
       }
@@ -295,6 +320,7 @@ var CodexSessionBrowserState = (() => {
         createSessionStore,
         normalizeClosedThreadIds,
         normalizeOpenSession,
+        normalizePinnedThreadIds,
         sessionKeyFor
       };
     }
